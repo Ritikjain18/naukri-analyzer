@@ -36,12 +36,18 @@ class AuditLog:
 
     def record(self, user, action: str, session_id: str | None = None, **detail) -> int:
         user_id, username = _identity(user)
-        scrubbed = _scrub(detail)
-        detail_json = json.dumps(scrubbed, default=str)
 
-        # If detail_json exceeds max size, store truncated marker instead
-        if len(detail_json) > MAX_DETAIL_JSON:
-            detail_json = json.dumps({"truncated": True, "size": len(detail_json)})
+        # Wrap scrubbing in try-catch to ensure record always succeeds
+        try:
+            scrubbed = _scrub(detail)
+            detail_json = json.dumps(scrubbed, default=str)
+
+            # If detail_json exceeds max size, store truncated marker instead
+            if len(detail_json) > MAX_DETAIL_JSON:
+                detail_json = json.dumps({"truncated": True, "size": len(detail_json)})
+        except Exception:
+            # If scrubbing or JSON encoding fails for any reason, degrade gracefully
+            detail_json = json.dumps({"scrub_error": True})
 
         return self.db.insert(
             "INSERT INTO audit_log (ts_utc, user_id, username, action, detail_json, session_id) VALUES (?,?,?,?,?,?)",

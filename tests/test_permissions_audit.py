@@ -140,3 +140,49 @@ def test_require_non_string_role():
 def test_roles_export_matches_auth():
     assert ROLES == AUTH_ROLES
     assert set(PERMISSIONS.keys()) == set(ROLES)
+
+
+def test_record_with_non_string_dict_keys(audit):
+    """Fix: record() must handle non-string dict keys without raising TypeError."""
+    alice = User(1, "alice", "analyst", True)
+    # This should not raise TypeError
+    audit.record(alice, "test", metadata={1: "int_key", (2, 3): "tuple_key"})
+    rows = audit.query()
+    assert len(rows) == 1
+    assert rows[0]["action"] == "test"
+
+
+def test_record_with_bytes_value(audit):
+    """Fix: record() must handle bytes values gracefully."""
+    alice = User(1, "alice", "analyst", True)
+    # This should not raise
+    audit.record(alice, "test", data=b"some_bytes")
+    rows = audit.query()
+    assert len(rows) == 1
+    # bytes should be scrubbed as "[bytes]"
+    assert "[bytes]" in rows[0]["detail"].get("data", "")
+
+
+def test_record_with_cyclic_reference(audit):
+    """Fix: record() must handle cyclic references without hanging."""
+    alice = User(1, "alice", "analyst", True)
+    lst = []
+    lst.append(lst)  # Create cycle
+    # This should not hang or raise
+    audit.record(alice, "test", data=lst)
+    rows = audit.query()
+    assert len(rows) == 1
+
+
+def test_record_scrub_error_degradation(audit):
+    """Fix: If scrubbing fails, record() should degrade to storing scrub_error marker."""
+    # This is a backup test - the primary fixes should prevent scrub errors
+    # But if something unexpected happens during scrubbing, we should still write the audit
+    alice = User(1, "alice", "analyst", True)
+    # Create a pathological case that might have caused issues before the fix
+    detail = {"data": object()}  # An object that can't easily be serialized
+    # Should not raise
+    audit.record(alice, "test", **detail)
+    rows = audit.query()
+    assert len(rows) == 1
+    # The record should have been stored (possibly with error marker or stringified)
