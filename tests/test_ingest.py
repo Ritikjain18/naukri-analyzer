@@ -57,3 +57,12 @@ def test_no_upload_summarises_database(store):
     assert out["data_summary"] == "db summary"
     assert "df" not in out
     assert "widgets" in llm.prompts[0]
+
+
+def test_reserved_word_table_names_do_not_break_ingest(store):
+    store.replace_table(pd.DataFrame({"a": [1]}), "order")
+    store.replace_table(pd.DataFrame({"b": [2]}), "group")
+    llm = FakeLLM(["s"])
+    out = make_ingest_node(store, llm)({})
+    assert out["data_summary"] == "s"
+    assert "-- order" in llm.prompts[0] and "-- group" in llm.prompts[0]

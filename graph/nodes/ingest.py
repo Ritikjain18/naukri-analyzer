@@ -6,6 +6,10 @@ from graph.prompts import render
 from graph.skills import load_domain_skills
 
 
+def quote_ident(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
 def _sample_for_df(df) -> str:
     return df.head(5).to_csv(index=False) + "\n" + df.describe(include="all").round(2).to_csv()
 
@@ -13,7 +17,7 @@ def _sample_for_df(df) -> str:
 def _sample_for_db(store) -> str:
     parts = []
     for table in store.list_tables():
-        parts.append(f"-- {table}\n" + store.run_sql(f"SELECT * FROM {table} LIMIT 3").to_csv(index=False))
+        parts.append(f"-- {table}\n" + store.run_sql(f"SELECT * FROM {quote_ident(table)} LIMIT 3").to_csv(index=False))
     return "\n".join(parts) or "(database is empty)"
 
 

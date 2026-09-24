@@ -74,3 +74,40 @@ def test_retrieve_node_routes_and_caps():
     out = node({"question": "avg salary", "schema": "s", "df": df})
     assert out["query_type"] == "pandas"
     assert calls == ["sql", "pandas"]
+
+
+@pytest.mark.parametrize("expr", [
+    "df.to_pickle('{p}') or df",
+    "pd.read_pickle('{p}')",
+    "pd.read_csv('/etc/passwd')",
+    "df.to_csv('{p}')",
+    "df.query('v>0')",
+    "pd.io.common.os",
+    "df.apply(len)",
+])
+def test_pandas_tool_rejects_io_and_escape_hatches(expr, tmp_path):
+    target = tmp_path / "x"
+    expr = expr.format(p=target)
+    df = pd.DataFrame({"v": [1]})
+    llm = FakeLLM([expr, expr])
+    with pytest.raises(RetrievalError):
+        make_pandas_tool(llm)("q", df)
+    assert not target.exists()
+    assert "forbidden" in llm.prompts[1].lower()
+
+
+def test_pandas_tool_syntax_error_is_failed_attempt():
+    llm = FakeLLM(["df[", "df"])
+    out = make_pandas_tool(llm)("q", pd.DataFrame({"v": [1]}))
+    assert list(out["v"]) == [1]
+
+
+@pytest.mark.parametrize("expr,check", [
+    ("df.groupby('g')['v'].sum()", lambda o: list(o["v"]) == [3, 3]),
+    ("df[df['v'] > 1]", lambda o: len(o) == 2),
+    ("pd.to_datetime(df['d']).dt.month.value_counts().reset_index()", lambda o: len(o) == 2),
+    ("df.sort_values('v', ascending=False).head(3)", lambda o: list(o["v"]) == [3, 2, 1]),
+])
+def test_pandas_tool_legit_expressions(expr, check):
+    df = pd.DataFrame({"g": ["x", "x", "y"], "v": [1, 2, 3], "d": ["2024-01-05", "2024-01-09", "2024-02-01"]})
+    assert check(make_pandas_tool(FakeLLM([expr]))("q", df))

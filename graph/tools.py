@@ -1,3 +1,4 @@
+import ast
 import re
 
 import pandas as pd
@@ -29,9 +30,46 @@ def make_sql_tool(store, llm, row_cap: int = ROW_CAP):
     return run
 
 
-FORBIDDEN = ("__", "import", "open(", "exec(", "eval(", "compile(", "globals", "getattr", "os.", "sys.")
+IO_NAME = re.compile(
+    r"^(read_\w*|to_(csv|pickle|parquet|excel|json|sql|hdf|feather|stata|html|xml|clipboard|markdown|latex|orc|gbq))$"
+)
+DENIED_NAMES = frozenset({
+    "io", "eval", "query", "pipe", "apply", "applymap", "map", "exec", "compile", "open", "globals",
+    "locals", "getattr", "setattr", "delattr", "vars", "type", "__import__",
+})
 SAFE_BUILTINS = {"len": len, "sum": sum, "min": min, "max": max, "round": round,
                  "abs": abs, "sorted": sorted, "str": str, "int": int, "float": float}
+
+
+def _bound_names(tree: ast.AST) -> set[str]:
+    bound = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.arg):
+            bound.add(node.arg)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store):
+            bound.add(node.id)
+    return bound
+
+
+def check_expression(expr: str) -> str | None:
+    """Return a description of the first rejected construct, or None if the expression is allowed."""
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError as exc:
+        return f"syntax error ({exc.msg})"
+    free = {"df", "pd"} | set(SAFE_BUILTINS) | _bound_names(tree)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Attribute):
+            ident = node.attr
+        elif isinstance(node, ast.Name):
+            ident = node.id
+        else:
+            continue
+        if ident.startswith("_") or ident in DENIED_NAMES or IO_NAME.match(ident):
+            return f"'{ident}'"
+        if isinstance(node, ast.Name) and ident not in free:
+            return f"unknown name '{ident}'"
+    return None
 
 
 def _to_frame(result) -> pd.DataFrame:
@@ -50,8 +88,10 @@ def make_pandas_tool(llm, row_cap: int = ROW_CAP):
             prompt = render("pandas", columns=", ".join(f"{c} ({df[c].dtype})" for c in df.columns),
                             sample=sample, question=question, error_note=error_note)
             expr = extract_code(llm.invoke(prompt).content)
-            if any(tok in expr for tok in FORBIDDEN):
-                error_note = f"Your previous expression used a forbidden construct: {expr!r}. Use only df and pd."
+            rejected = check_expression(expr)
+            if rejected:
+                error_note = (f"Your previous expression used a forbidden construct ({rejected}): {expr!r}. "
+                              "Use only df and pd, no file I/O, query, apply or map.")
                 continue
             try:
                 result = eval(expr, {"__builtins__": SAFE_BUILTINS}, {"df": df, "pd": pd})
