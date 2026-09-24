@@ -6,6 +6,10 @@ from graph.prompts import render
 from graph.skills import detect_domain, load_skill
 
 
+ERROR_DETAIL_MAX = 300
+ERROR_NOTE = "Your previous answer was invalid ({detail}). Return only the JSON object described above."
+
+
 class AnalysisError(RuntimeError):
     pass
 
@@ -31,7 +35,8 @@ def make_analyst_node(llm):
         prompts = list(state.get("prompts", []))
         base = dict(summary=state.get("data_summary", ""), skill=skill,
                     history=format_history(state.get("chat_history", [])), question=state["question"])
-        overhead = count_tokens(render("query", slice="", error_note="", **base))
+        worst_note = ERROR_NOTE.format(detail="x" * ERROR_DETAIL_MAX)  # reserve the retry note
+        overhead = count_tokens(render("query", slice="", error_note=worst_note, **base))
         slice_budget = max(200, effective_limit(MODEL_SMART) - OUTPUT_RESERVE - overhead)
         slice_text = fit_rows(data_slice, slice_budget)
         error_note = ""
@@ -42,7 +47,7 @@ def make_analyst_node(llm):
                 insight = Insight(**extract_json(llm.invoke(prompt).content))
                 return {"insight": insight, "prompts": prompts}
             except ValueError as exc:
-                error_note = f"Your previous answer was invalid ({exc}). Return only the JSON object described above."
+                error_note = ERROR_NOTE.format(detail=str(exc)[:ERROR_DETAIL_MAX])
         raise AnalysisError("The analyst could not produce a valid insight.")
 
     return analyst

@@ -69,3 +69,26 @@ def test_analyst_small_slice_not_truncated():
     llm = FakeLLM([GOOD])
     make_analyst_node(llm)(base_state())
     assert "truncated" not in llm.prompts[0]
+
+
+def _long_error_llm():
+    # extract_json raises ValueError embedding the (unbounded) offending text
+    return FakeLLM(["{" + "z" * 5000, GOOD])
+
+
+def test_analyst_retry_prompt_stays_within_budget_with_long_error():
+    import config
+    big = pd.DataFrame({f"col_{i}": [f"value_{r}_{i}" for r in range(200)] for i in range(30)})
+    llm = _long_error_llm()
+    make_analyst_node(llm)(base_state(data_slice=big))
+    assert len(llm.prompts) == 2
+    assert count_tokens(llm.prompts[1]) <= effective_limit(config.MODEL_SMART) - config.OUTPUT_RESERVE
+
+
+def test_analyst_retry_error_note_is_clipped():
+    from graph.nodes.analyst import ERROR_NOTE
+    llm = _long_error_llm()
+    make_analyst_node(llm)(base_state())
+    extra = len(llm.prompts[1]) - len(llm.prompts[0])
+    assert 0 < extra <= len(ERROR_NOTE) + 400
+    assert "z" * 400 not in llm.prompts[1]

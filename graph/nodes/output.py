@@ -23,7 +23,7 @@ def make_output_node(llm):
                     chart = validate_chart(extract_json(llm.invoke(prompt).content), data_slice)
                     break
                 except ValueError as exc:
-                    error_note = f"Your previous answer was invalid ({exc}). Return only the JSON object described above."
+                    error_note = f"Your previous answer was invalid ({str(exc)[:300]}). Return only the JSON object described above."
             if chart is None:
                 errors.append("Chart could not be generated.")
 
