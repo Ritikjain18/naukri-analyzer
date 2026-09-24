@@ -1,0 +1,9 @@
+Given the insight and the columns available in the data slice, choose ONE chart that best supports the finding.
+
+Insight: $insight
+
+Available columns: $columns
+
+Return ONLY a JSON object: {"type": "bar|line|scatter|pie", "x": "<column>", "y": "<column>", "title": "<short title>"}
+x and y MUST be exact names from the available columns. y must be a numeric column.
+$error_note

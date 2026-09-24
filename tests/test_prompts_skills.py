@@ -1,0 +1,48 @@
+import re
+
+import pytest
+
+from graph.prompts import load_prompt, render
+from graph.skills import detect_domain, load_domain_skills, load_skill
+
+VARS = {
+    "data_understanding": dict(skills="s", schema="sc", sample="sm"),
+    "query": dict(summary="a", skill="b", history="c", slice="d", question="e", error_note=""),
+    "visualization": dict(insight="i", columns="c", error_note=""),
+    "sql": dict(schema="s", limit=200, question="q", error_note=""),
+    "pandas": dict(columns="c", sample="s", question="q", error_note=""),
+}
+
+
+@pytest.mark.parametrize("name", VARS)
+def test_every_prompt_renders_fully(name):
+    out = render(name, **VARS[name])
+    assert not re.search(r"\$[A-Za-z_]+", out)
+
+
+def test_render_keeps_json_braces():
+    out = render("visualization", **VARS["visualization"])
+    assert '{"type"' in out
+
+
+def test_load_prompt_missing_version_raises():
+    with pytest.raises(FileNotFoundError):
+        load_prompt("query", "v99")
+
+
+@pytest.mark.parametrize("cols,expected", [
+    (["job_id", "title", "category", "location", "views", "applications"], "job-posting"),
+    (["candidate_id", "job_id", "stage", "date", "drop_off_flag"], "hiring-funnel"),
+    (["date", "source", "visits", "session_duration", "bounce_rate"], "traffic"),
+    (["foo", "bar"], None),
+])
+def test_detect_domain(cols, expected):
+    assert detect_domain(cols) == expected
+
+
+def test_skills_load():
+    for d in ["job-posting", "hiring-funnel", "traffic", "slide-gen"]:
+        assert len(load_skill(d)) > 100
+    combined = load_domain_skills()
+    assert "job-posting" in combined and "traffic" in combined
+    assert "slide-gen" not in combined
