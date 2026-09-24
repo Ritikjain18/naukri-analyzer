@@ -35,3 +35,29 @@ def test_get_llm_uses_requested_model(monkeypatch):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     llm = get_llm(config.MODEL_SMART)
     assert llm.model_name == config.MODEL_SMART
+
+
+class PayloadTooLarge(Exception):
+    pass
+
+
+class StatusError(Exception):
+    def __init__(self, msg, status_code):
+        super().__init__(msg)
+        self.status_code = status_code
+
+
+def test_friendly_413_by_type_name_and_status():
+    assert "too large" in friendly_error(PayloadTooLarge("boom")).lower()
+    assert "narrower question" in friendly_error(StatusError("nope", 413))
+    assert "too large" in friendly_error(ValueError("Please reduce your message size")).lower()
+    assert "too large" in friendly_error(ValueError("Request too large for model")).lower()
+
+
+def test_friendly_status_code_beats_substring():
+    assert "rate limit" in friendly_error(StatusError("mentions 401 in body", 429)).lower()
+
+
+def test_generic_error_redacts_api_key():
+    out = friendly_error(ValueError("bad header gsk_abc123-XYZ_9 rejected"))
+    assert "gsk_abc123" not in out and "[redacted]" in out

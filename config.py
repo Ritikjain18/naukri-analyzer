@@ -11,6 +11,10 @@ MODEL_FAST = "llama-3.1-8b-instant"
 MODEL_SMART = "llama-3.3-70b-versatile"
 ROW_CAP = 200
 HISTORY_TURNS = 6
+MAX_PROMPT_CHARS = 12000
+SLICE_CHARS = 8000
+SAMPLE_CHARS = 6000
+DESCRIBE_COLUMNS = 20
 
 
 class MissingKeyError(RuntimeError):

@@ -75,3 +75,21 @@ def test_append_returns_full_table_in_df(store):
     second = node({"upload": {"name": "jobs.csv", "bytes": CSV}, "prompts": []})
     assert second["ingest_action"] == "appended"
     assert len(second["df"]) == 4
+
+
+def test_wide_frame_sample_is_bounded(store):
+    import config
+    wide = pd.DataFrame({f"c{i}": [f"some long text value {r} {i}" * 3 for r in range(50)] for i in range(60)})
+    llm = FakeLLM(["s"])
+    make_ingest_node(store, llm)({"upload": {"name": "wide.csv", "bytes": wide.to_csv(index=False).encode()}})
+    assert len(llm.prompts[0]) < config.MAX_PROMPT_CHARS
+
+
+def test_db_sample_is_bounded(store):
+    import config
+    for t in range(30):
+        store.replace_table(pd.DataFrame({f"c{i}": ["x" * 60] * 3 for i in range(8)}), f"t{t}")
+    llm = FakeLLM(["s"])
+    make_ingest_node(store, llm)({})
+    assert "..." in llm.prompts[0]
+    assert len(llm.prompts[0]) < config.MAX_PROMPT_CHARS

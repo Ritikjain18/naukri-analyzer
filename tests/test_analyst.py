@@ -52,3 +52,19 @@ def test_analyst_empty_slice_skips_llm():
     out = make_analyst_node(llm)(base_state(data_slice=SLICE.iloc[0:0]))
     assert "No data matched" in out["insight"].finding
     assert llm.prompts == []
+
+
+def test_analyst_truncates_large_slice_to_fit_prompt_cap():
+    import config
+    big = pd.DataFrame({f"col_{i}": [f"value_{r}_{i}" for r in range(200)] for i in range(40)})
+    llm = FakeLLM([GOOD])
+    make_analyst_node(llm)(base_state(data_slice=big))
+    prompt = llm.prompts[0]
+    assert len(prompt) < config.MAX_PROMPT_CHARS
+    assert "# truncated: showing " in prompt and " of 200 rows" in prompt
+
+
+def test_analyst_small_slice_not_truncated():
+    llm = FakeLLM([GOOD])
+    make_analyst_node(llm)(base_state())
+    assert "truncated" not in llm.prompts[0]

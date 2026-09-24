@@ -1,3 +1,4 @@
+from config import SLICE_CHARS
 from graph.models import Insight
 from graph.parsing import extract_json
 from graph.prompts import render
@@ -12,6 +13,22 @@ def format_history(history: list[dict]) -> str:
     if not history:
         return "(none)"
     return "\n".join(f"Q: {h['question']}\nA: {h['finding']}" for h in history)
+
+
+def slice_to_csv(data_slice, budget: int = SLICE_CHARS, min_rows: int = 5) -> str:
+    """CSV of the slice, dropping trailing rows until it fits the budget (keeps at least min_rows)."""
+    total = len(data_slice)
+    text = data_slice.to_csv(index=False)
+    if len(text) <= budget:
+        return text
+    lo, hi = min(min_rows, total), total  # invariant: hi is too big or the full frame
+    while lo < hi:
+        mid = (lo + hi + 1) // 2
+        if len(data_slice.head(mid).to_csv(index=False)) <= budget:
+            lo = mid
+        else:
+            hi = mid - 1
+    return data_slice.head(lo).to_csv(index=False) + f"# truncated: showing {lo} of {total} rows\n"
 
 
 def make_analyst_node(llm):
@@ -34,7 +51,7 @@ def make_analyst_node(llm):
                 summary=state.get("data_summary", ""),
                 skill=skill,
                 history=format_history(state.get("chat_history", [])),
-                slice=data_slice.to_csv(index=False),
+                slice=slice_to_csv(data_slice),
                 question=state["question"],
                 error_note=error_note,
             )
