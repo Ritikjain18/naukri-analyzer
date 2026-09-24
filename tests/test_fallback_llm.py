@@ -2,6 +2,8 @@ from types import SimpleNamespace
 
 import pytest
 
+import config
+
 from graph.llm import FallbackLLM, RateLimitExhausted, build_llm, friendly_error, is_rate_limit
 from graph.ratelimit import RateLimitManager
 
@@ -94,8 +96,8 @@ def test_is_rate_limit_and_friendly_error():
 
 def test_build_llm_makes_chain(monkeypatch, mgr):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
-    llm = build_llm(["llama-3.3-70b-versatile", "llama-3.1-8b-instant"], mgr)
-    assert [m for m, _ in llm.chain] == ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+    llm = build_llm([config.MODEL_SMART, config.MODEL_FAST], mgr)
+    assert [m for m, _ in llm.chain] == [config.MODEL_SMART, config.MODEL_FAST]
 
 
 def test_prompt_too_large_when_no_model_could_ever_take_it(mgr):

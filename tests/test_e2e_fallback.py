@@ -4,7 +4,7 @@ import json
 import pandas as pd
 import pytest
 
-from config import MODEL_FAST, MODEL_SMART, OUTPUT_RESERVE, RATE_HEADROOM
+from config import MODEL_FAST, MODEL_LIMITS, MODEL_SMART, OUTPUT_RESERVE, RATE_HEADROOM
 from graph.budget import count_tokens
 from graph.build_graph import build_graph
 from graph.llm import FallbackLLM, PromptTooLarge, RateLimitExhausted, friendly_error
@@ -25,7 +25,9 @@ INSIGHT = json.dumps({"finding": "Engineering has the highest conversion rate.",
                       "evidence": ["Eng 20% vs Sales 10%"], "recommendation": "Invest in Engineering."})
 CHART = json.dumps({"type": "bar", "x": "category", "y": "conversion", "title": "Conversion"})
 SMART_SCRIPT = [ORCH, OK, INSIGHT, OK]
-BACKUP_SCRIPT = [OK, INSIGHT, OK, OK]  # 8B backup: judges score cleanly, analyst can answer
+BACKUP_SCRIPT = [OK, INSIGHT, OK, OK]  # fast-model backup: judges score cleanly, analyst can answer
+TPM_SMART = MODEL_LIMITS[MODEL_SMART]["tpm"]
+TPM_FAST = MODEL_LIMITS[MODEL_FAST]["tpm"]
 SHARED = {"data_summary": "S", "schema": "job_postings(category TEXT, conversion REAL)"}
 
 
@@ -71,9 +73,9 @@ def test_happy_path_uses_smart_model_and_records_usage(store, tmp_path):
     assert manager.used_last_minute(MODEL_SMART) > 0
 
 
-def test_exhausted_70b_falls_back_to_8b_for_the_same_question(store, tmp_path):
+def test_exhausted_smart_falls_back_to_fast_for_the_same_question(store, tmp_path):
     graph, fast, smart, manager, smart_fake = setup(store, tmp_path, backup_script=SMART_SCRIPT)
-    manager.record(MODEL_SMART, 11000)
+    manager.record(MODEL_SMART, TPM_SMART)
     result = run(graph)
     assert result["insight"].finding == "Engineering has the highest conversion rate."
     assert smart.used_models() == [MODEL_FAST]
@@ -84,18 +86,18 @@ def test_wide_slice_completes_without_rate_limit_error(store, tmp_path):
     graph, fast, smart, manager, smart_fake = setup(store, tmp_path, frame=wide_frame)
     result = run(graph)
     assert result["insight"].finding.startswith("Engineering")
-    # the analyst is served by 70B; later judges may fall to 8B once its per-minute budget is spent
+    # the analyst is served by the smart model; later judges may fall to the fast model once its per-minute budget is spent
     assert len(smart_fake.prompts) >= 3 and "Data slice (CSV)" in smart_fake.prompts[2]
     assert "Judge could not score this answer." not in result.get("errors", [])
     analyst_prompt = next(p["prompt"] for p in result["prompts"] if p["node"] == "analyst")
     assert "# truncated" in analyst_prompt
-    assert count_tokens(analyst_prompt) + OUTPUT_RESERVE <= RATE_HEADROOM * 12000
+    assert count_tokens(analyst_prompt) + OUTPUT_RESERVE <= RATE_HEADROOM * MODEL_LIMITS[MODEL_SMART]["tpm"]
 
 
 def test_whole_chain_exhausted_raises_and_maps_to_friendly_message(store, tmp_path):
     graph, fast, smart, manager, _ = setup(store, tmp_path)
-    manager.record(MODEL_SMART, 11000)
-    manager.record(MODEL_FAST, 5500)
+    manager.record(MODEL_SMART, TPM_SMART)
+    manager.record(MODEL_FAST, TPM_FAST)
     with pytest.raises(RateLimitExhausted) as info:
         run(graph)
     assert not isinstance(info.value, PromptTooLarge)
@@ -146,7 +148,7 @@ def test_guard_retry_after_full_size_analyst_call_ends_with_corrected_answer(sto
     assert len(analyst_prompts) == 2 and count_tokens(analyst_prompts[1]) < count_tokens(analyst_prompts[0])
 
 
-def test_guard_retry_with_8b_exhausted_degrades_without_raising(store, tmp_path):
+def test_guard_retry_with_fast_exhausted_degrades_without_raising(store, tmp_path):
     graph, fast, smart, manager, smart_fake = setup(
         store, tmp_path, frame=wide_frame, smart_script=[ORCH, OK, FABRICATED, INSIGHT, OK])
     manager.record(MODEL_FAST, 5300)
@@ -168,8 +170,8 @@ def test_malformed_first_attempt_is_retried_with_a_smaller_slice(store, tmp_path
 def test_first_attempt_rate_limit_at_the_analyst_raises_and_maps_to_friendly_message(store, tmp_path):
     graph, fast, smart, manager, smart_fake = setup(store, tmp_path, frame=wide_frame)
     backup_fake = smart.chain[1][1]
-    manager.record(MODEL_SMART, 9000)
-    manager.record(MODEL_FAST, 3000)
+    manager.record(MODEL_SMART, TPM_SMART + 1000)
+    manager.record(MODEL_FAST, 5000)
     with pytest.raises(RateLimitExhausted) as info:
         run(graph)
     assert not isinstance(info.value, PromptTooLarge)

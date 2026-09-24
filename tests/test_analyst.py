@@ -116,7 +116,7 @@ def test_wide_slice_is_admissible_on_a_fresh_usage_log(tmp_path):
     out = make_analyst_node(llm)(base_state(data_slice=wide))
     assert out["insight"].finding == "Engineering converts best."
     prompt = fake.prompts[0]
-    assert count_tokens(prompt) + config.OUTPUT_RESERVE <= config.RATE_HEADROOM * 12000
+    assert count_tokens(prompt) + config.OUTPUT_RESERVE <= config.RATE_HEADROOM * config.MODEL_LIMITS[config.MODEL_SMART]["tpm"]
     assert "# truncated" in prompt
 
 
@@ -169,7 +169,7 @@ def test_slice_shrinks_when_manager_reports_used_capacity():
     from types import SimpleNamespace
     wide = pd.DataFrame({f"col{c}": [f"value{r:07d}" for r in range(200)] for c in range(20)})
     fresh, busy = FakeLLM([GOOD]), FakeLLM([GOOD])
-    busy.manager = SimpleNamespace(used_last_minute=lambda model: 6000)
+    busy.manager = SimpleNamespace(used_last_minute=lambda model: 5000)
     make_analyst_node(fresh)(base_state(data_slice=wide))
     make_analyst_node(busy)(base_state(data_slice=wide))
     assert count_tokens(busy.prompts[0]) < count_tokens(fresh.prompts[0]) - 4000

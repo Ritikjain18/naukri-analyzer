@@ -1,5 +1,7 @@
 # Naukri Personal Data Analyzer — Phase 2 Design
 
+> **Note:** Groq retired the Llama 3.1 8B / 3.3 70B models for this account; the models are now openai/gpt-oss-20b (fast) and openai/gpt-oss-120b (smart) — see config.py.
+
 Builds on `2026-09-24-phase1-design.md` (implemented; 126 offline tests). Source of intent: `Naukri_Architecture_Document.docx` sections 4, 8, 9, 11.
 
 ## Goals

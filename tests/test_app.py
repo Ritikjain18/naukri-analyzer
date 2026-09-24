@@ -129,12 +129,12 @@ SCORES = [{"stage": "analyst", "relevance": 4, "specificity": 3, "actionability"
 
 
 def test_judge_scores_models_and_export_selector_appear(monkeypatch, tmp_path):
-    monkeypatch.setattr(FallbackLLM, "used_models", lambda self: ["llama-3.3-70b-versatile"])
+    monkeypatch.setattr(FallbackLLM, "used_models", lambda self: [config.MODEL_SMART])
     try:
         at, _ = run_app_with_stub(monkeypatch, tmp_path, judge_scores=SCORES)
         assert not at.exception
         assert any("Judge scores" in e.label for e in at.expander)
-        assert any("Answered by: llama-3.3-70b-versatile" in c.value for c in at.caption)
+        assert any(f"Answered by: {config.MODEL_SMART}" in c.value for c in at.caption)
         assert not any(c.value.startswith("Models:") for c in at.caption)
         assert at.sidebar.multiselect[0].value == ["1. Engineering has the highest conversion rate."]
     finally:

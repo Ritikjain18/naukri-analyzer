@@ -12,14 +12,14 @@ def test_count_tokens_applies_margin():
 
 
 def test_effective_limit_uses_tpm_or_context_window():
-    assert effective_limit(config.MODEL_SMART) == 12000
-    assert effective_limit(config.MODEL_FAST) == 6000
+    assert effective_limit(config.MODEL_SMART) == config.MODEL_LIMITS[config.MODEL_SMART]["tpm"] == 8000
+    assert effective_limit(config.MODEL_FAST) == config.MODEL_LIMITS[config.MODEL_FAST]["tpm"] == 8000
     assert effective_limit("unknown-model") == config.CONTEXT_WINDOW
 
 
 def test_available_tokens_math():
     system, history, question = "a" * 400, "b" * 40, "c" * 40
-    expected = 12000 - config.OUTPUT_RESERVE - count_tokens(system) - count_tokens(history) - count_tokens(question)
+    expected = config.MODEL_LIMITS[config.MODEL_SMART]["tpm"] - config.OUTPUT_RESERVE - count_tokens(system) - count_tokens(history) - count_tokens(question)
     assert available_tokens(config.MODEL_SMART, system, history, question) == expected
 
 
