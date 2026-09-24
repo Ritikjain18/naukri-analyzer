@@ -37,6 +37,7 @@ class AuthResult:
     ok: bool
     user: User | None
     reason: str
+    newly_locked: bool = False
 
 
 def _b64(raw: bytes) -> str:
@@ -116,6 +117,12 @@ class AuthService:
             except sqlite3.IntegrityError:
                 raise AccountError("That username is already taken.") from None
 
+    def create_first_admin(self, username: str, password: str) -> int:
+        with self.db.lock:
+            if self.db.one("SELECT COUNT(*) AS n FROM users")["n"] != 0:
+                raise AccountError("Setup is already complete.")
+            return self.create_user(username, password, "admin")
+
     def get_user(self, user_id: int) -> User | None:
         row = self.db.one("SELECT * FROM users WHERE id = ?", (user_id,))
         return _user(row) if row else None
@@ -148,7 +155,7 @@ class AuthService:
                 until = iso(now + timedelta(minutes=config.LOCKOUT_MINUTES)) if locked else None
                 self.db.execute("UPDATE users SET failed_attempts = ?, locked_until = ? WHERE id = ?",
                                 (attempts, until, row["id"]))
-                return AuthResult(False, None, "locked" if locked else "invalid")
+                return AuthResult(False, None, "locked" if locked else "invalid", newly_locked=locked)
             self.db.execute("UPDATE users SET failed_attempts = 0, locked_until = NULL, last_login = ? WHERE id = ?",
                             (iso(now), row["id"]))
             return AuthResult(True, _user(row), "ok")

@@ -2,11 +2,40 @@ import logging
 
 import streamlit as st
 
-from accounts.auth import AccountError
+from accounts.auth import USERNAME_RE, AccountError
 
 log = logging.getLogger(__name__)
 PASSWORD_KEYS = ("login_password", "bootstrap_password", "bootstrap_confirm", "pw_old", "pw_new")
 SESSION_KEYS = ("auth", "session_id", "shared", "messages", "pending_revision", "ingest_prompts", "history_viewed")
+
+
+SUMMARY_WARNING = "Could not save the session summary (it will be retried later)."
+REVOKED_MESSAGE = "Your session has ended. Please log in again."
+
+
+def flash(kind: str, text: str) -> None:
+    """Queue a message that survives st.rerun() and the session-key clearing; shown once by show_flash()."""
+    st.session_state["flash"] = (kind, text)
+
+
+def show_flash() -> None:
+    item = st.session_state.pop("flash", None)
+    if item:
+        getattr(st, item[0])(item[1])
+
+
+def revoke_session(services, auth: dict, reason: str) -> None:
+    """The account behind this browser session was disabled or deleted: end it and force a fresh login."""
+    user = {"id": auth["user_id"], "username": auth["username"]}
+    sid = st.session_state.get("session_id")
+    try:
+        if sid:
+            services.memory.end_session(sid, auth["user_id"])
+    except Exception as exc:
+        log.warning("end_session failed on revoke: %s", type(exc).__name__)
+    services.audit.record(user, "session_revoked", sid, reason=reason)
+    _reset_state()
+    flash("warning", REVOKED_MESSAGE)
 
 
 def _clear_passwords() -> None:
@@ -22,7 +51,7 @@ def begin_session(services, auth: dict, summarise: bool = False) -> None:
             services.memory.summarise_pending(uid)
         except Exception as exc:
             log.warning("summarise_pending failed: %s", type(exc).__name__)
-            st.warning("Earlier sessions could not be summarised; continuing without them.")
+            flash("warning", SUMMARY_WARNING)
     st.session_state["session_id"] = services.sessions.start(uid)
     shared = st.session_state.setdefault("shared", {})
     try:
@@ -52,7 +81,7 @@ def render_bootstrap(services) -> None:
         st.error("Passwords do not match.")
         return
     try:
-        uid = services.auth.create_user(username, password, "admin")
+        uid = services.auth.create_first_admin(username, password)
     except AccountError as exc:
         st.error(str(exc))
         return
@@ -72,13 +101,14 @@ def render_login(services) -> None:
     if result.ok:
         _log_in(services, result.user)
         return
-    tried = {"username_tried": username.strip()[:64]}
-    if result.reason == "locked":
+    name = username.strip()
+    tried = {"username_tried": name if USERNAME_RE.match(name) else "[invalid]"}
+    if result.newly_locked:
         services.audit.record(None, "account_locked", **tried)
         st.error("Too many failed attempts. Try again later.")
     else:
         services.audit.record(None, "login_failed", reason=result.reason, **tried)
-        st.error("Invalid username or password.")
+        st.error("Too many failed attempts. Try again later." if result.reason == "locked" else "Invalid username or password.")
 
 
 def _finish_session(ctx, action: str) -> None:
@@ -86,7 +116,7 @@ def _finish_session(ctx, action: str) -> None:
         ctx.services.memory.end_session(ctx.session_id, ctx.user["id"])
     except Exception as exc:
         log.warning("end_session failed: %s", type(exc).__name__)
-        st.warning("Could not summarise this session; it will be retried later.")
+        flash("warning", SUMMARY_WARNING)
     ctx.services.audit.record(ctx.user, "session_end", ctx.session_id)
     if action == "logout":
         ctx.services.audit.record(ctx.user, "logout", ctx.session_id)

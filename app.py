@@ -10,7 +10,7 @@ from graph.nodes.ingest import make_ingest_node
 from graph.ratelimit import RateLimitManager
 from graph.tools import make_sql_tool
 from ui import router
-from ui.auth_ui import begin_session, render_account_box, render_bootstrap, render_login
+from ui.auth_ui import begin_session, render_account_box, render_bootstrap, render_login, revoke_session, show_flash
 from ui.context import Ctx
 
 st.set_page_config(page_title="Naukri Personal Data Analyzer", layout="wide")
@@ -38,10 +38,18 @@ def get_runtime():
 
 store, ingest_node, graph, llms, services = get_runtime()
 
+auth = st.session_state.get("auth")
+if auth:   # re-check the account on every run so a disabled/demoted user loses access immediately
+    current = services.auth.get_user(auth["user_id"])
+    if current is None or not current.active:
+        revoke_session(services, auth, "deleted" if current is None else "disabled")
+        auth = None
+    else:
+        auth["role"], auth["username"] = current.role, current.username
+show_flash()
 if services.auth.needs_bootstrap():
     render_bootstrap(services)
     st.stop()
-auth = st.session_state.get("auth")
 if not auth:
     render_login(services)
     st.stop()

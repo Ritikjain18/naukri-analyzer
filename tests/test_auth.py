@@ -246,3 +246,39 @@ def test_lone_surrogate_password_is_rejected_cleanly(svc):
         svc.reset_password(uid, bad)
     assert not auth.verify_password(bad, auth.hash_password(PW))
     assert svc.authenticate("alice", bad).reason == "invalid"
+
+
+def test_newly_locked_only_on_the_triggering_attempt(svc):
+    svc.create_user("alice", PW, "analyst")
+    results = [svc.authenticate("alice", "bad password!") for _ in range(7)]
+    assert [r.newly_locked for r in results] == [False] * 4 + [True] + [False] * 2
+    assert [r.reason for r in results] == ["invalid"] * 4 + ["locked"] * 3
+    assert svc.authenticate("alice", PW).newly_locked is False
+
+
+def test_create_first_admin_only_when_empty(svc):
+    uid = svc.create_first_admin("root", PW)
+    assert svc.get_user(uid).role == "admin"
+    with pytest.raises(AccountError) as exc:
+        svc.create_first_admin("other", PW)
+    assert str(exc.value) == "Setup is already complete."
+    assert [u.username for u in svc.list_users()] == ["root"]
+
+
+def test_create_first_admin_race_creates_exactly_one(svc):
+    barrier, outcomes = threading.Barrier(2), []
+    assert svc.needs_bootstrap()
+
+    def go(name):
+        barrier.wait()
+        try:
+            svc.create_first_admin(name, PW)
+            outcomes.append("ok")
+        except AccountError as exc:
+            outcomes.append(str(exc))
+
+    threads = [threading.Thread(target=go, args=(n,)) for n in ("root1", "root2")]
+    [t.start() for t in threads]
+    [t.join() for t in threads]
+    assert sorted(outcomes) == ["Setup is already complete.", "ok"]
+    assert len(svc.list_users()) == 1
