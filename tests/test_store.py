@@ -1,5 +1,7 @@
 import pandas as pd
 import pytest
+from pandas.errors import DatabaseError as PandasDatabaseError
+from sqlalchemy import exc as sqlalchemy_exc
 
 from data.store import SchemaMismatchError, sanitize_name
 
@@ -125,6 +127,61 @@ def test_replace_then_append_same_headers(store):
     schema = store.get_schema()["my_jobs"]
     column_names = [c for c, _ in schema]
     assert column_names == ["job_id", "views"]
+
+
+def test_run_sql_with_insert_blocked_by_mode_ro(store):
+    """WITH...INSERT passes string guard but should be blocked by mode=ro."""
+    store.replace_table(pd.DataFrame({"a": [1, 2]}), "t")
+    initial_count = len(store.run_sql("SELECT * FROM t"))
+    # WITH...INSERT passes the SELECT/WITH string check but fails on mode=ro
+    with pytest.raises(PandasDatabaseError, match="readonly database"):
+        store.run_sql("WITH c AS (SELECT 3 AS a) INSERT INTO t SELECT * FROM c")
+    # Row count should be unchanged
+    final_count = len(store.run_sql("SELECT * FROM t"))
+    assert final_count == initial_count
+
+
+def test_run_sql_with_delete_blocked_by_mode_ro(store):
+    """WITH...DELETE passes string guard but should be blocked by mode=ro."""
+    store.replace_table(pd.DataFrame({"a": [1, 2, 3]}), "t")
+    initial_count = len(store.run_sql("SELECT * FROM t"))
+    # WITH...DELETE passes the SELECT/WITH string check but fails on mode=ro
+    with pytest.raises(PandasDatabaseError, match="readonly database"):
+        store.run_sql("WITH c AS (SELECT 1 AS a) DELETE FROM t WHERE a IN (SELECT a FROM c)")
+    # Row count should be unchanged
+    final_count = len(store.run_sql("SELECT * FROM t"))
+    assert final_count == initial_count
+
+
+def test_run_sql_multi_statement_blocked_by_mode_ro(store):
+    """Multi-statement SELECT; DROP passes guard but blocked by driver/mode=ro."""
+    store.replace_table(pd.DataFrame({"a": [1]}), "t")
+    # SELECT; DROP passes the SELECT/WITH string check but fails on driver/mode
+    with pytest.raises(PandasDatabaseError):
+        store.run_sql("SELECT 1; DROP TABLE t")
+    # Table should still exist
+    assert store.list_tables() == ["t"]
+    assert len(store.run_sql("SELECT * FROM t")) == 1
+
+
+def test_run_sql_pragma_guard_then_with_write_fails(store):
+    """PRAGMA OFF raises from guard, then WITH...INSERT still fails on mode=ro."""
+    store.replace_table(pd.DataFrame({"a": [1, 2]}), "t")
+    initial_count = len(store.run_sql("SELECT * FROM t"))
+
+    # First attempt: PRAGMA raises ValueError from guard
+    with pytest.raises(ValueError, match="Only SELECT queries are allowed"):
+        store.run_sql("PRAGMA query_only = OFF")
+
+    # Second attempt: WITH...INSERT that passes guard still fails on mode=ro
+    with pytest.raises(PandasDatabaseError, match="readonly database"):
+        store.run_sql("WITH c AS (SELECT 99 AS a) INSERT INTO t SELECT * FROM c")
+
+    # Row count should be unchanged
+    final_count = len(store.run_sql("SELECT * FROM t"))
+    assert final_count == initial_count
+    # Table still exists and is readable
+    assert store.list_tables() == ["t"]
 
 
 def test_schema_text(store):
