@@ -34,7 +34,7 @@ def test_guard_input_passes_hr_question(store):
     store.replace_table(pd.DataFrame({"category": ["a"]}), "job_postings")
     out = make_guard_input_node(store)({"question": "Which category has the most job postings?"})
     assert out == {"guard_rejected": False}
-    assert route_after_input({"data_summary": "x"}) == "retrieve"
+    assert route_after_input({"data_summary": "x"}) == "orchestrate"
     assert route_after_input({}) == "ingest"
 
 

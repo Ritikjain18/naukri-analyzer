@@ -10,6 +10,8 @@ VARS = {
     "query": dict(summary="a", skill="b", history="c", slice="d", question="e", error_note=""),
     "visualization": dict(insight="i", columns="c", error_note=""),
     "sql": dict(schema="s", limit=200, history="h", question="q", error_note=""),
+    "orchestrator": dict(schema="s", summary="m", history="h", question="q"),
+    "judge": dict(stage="analyst", question="q", output="o"),
     "pandas": dict(columns="c", sample="s", history="h", question="q", error_note=""),
 }
 
@@ -52,3 +54,8 @@ def test_query_v2_leaves_no_placeholders():
     out = render("query", "v2", summary="a", skill="b", history="c", slice="d", question="e",
                  error_note="", guard_error="", judge_correction="", revision_note="")
     assert "$" not in out
+
+
+def test_sql_v2_renders_with_correction():
+    out = render("sql", "v2", schema="s", limit=200, history="h", question="q", correction="Fix X.", error_note="")
+    assert "Fix X." in out and not re.search(r"\$[A-Za-z_]+", out)

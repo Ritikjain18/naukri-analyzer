@@ -18,10 +18,12 @@ def _record(trace: list | None, node: str, prompt: str, output: str) -> None:
 
 
 def make_sql_tool(store, llm, row_cap: int = ROW_CAP):
-    def run(question: str, schema: str, history: str = "(none)", trace: list | None = None) -> pd.DataFrame:
+    def run(question: str, schema: str, history: str = "(none)", trace: list | None = None,
+            correction: str = "") -> pd.DataFrame:
         error_note = ""
         for _ in range(2):
-            prompt = render("sql", schema=schema, limit=row_cap, history=history, question=question,
+            prompt = render("sql", "v2", schema=schema, limit=row_cap, history=history, question=question,
+                            correction=(f"A reviewer asked for this change: {correction}" if correction else ""),
                             error_note=error_note)
             sql = extract_sql(llm.invoke(prompt).content)
             _record(trace, "retrieve-sql", prompt, sql)

@@ -58,7 +58,7 @@ def test_pandas_tool_blocks_dangerous_code():
 def test_retrieve_node_routes_and_caps():
     calls = []
 
-    def sql_tool(q, schema, history="(none)", trace=None):
+    def sql_tool(q, schema, history="(none)", trace=None, correction=""):
         calls.append("sql")
         return pd.DataFrame({"a": range(300)})
 
@@ -139,3 +139,12 @@ def test_sql_tool_handles_chatty_output(seeded):
     llm = FakeLLM(["Sure! Here is the query: SELECT COUNT(*) AS n FROM jobs;"])
     out = make_sql_tool(seeded, llm)("how many", seeded.schema_text())
     assert out["n"][0] == 3
+
+
+def test_sql_prompt_contains_correction_only_when_given(seeded):
+    llm = FakeLLM(["SELECT COUNT(*) AS n FROM jobs", "SELECT COUNT(*) AS n FROM jobs"])
+    tool = make_sql_tool(seeded, llm)
+    tool("how many", seeded.schema_text(), correction="Group by category.")
+    tool("how many", seeded.schema_text())
+    assert "Group by category." in llm.prompts[0]
+    assert "reviewer" not in llm.prompts[1]

@@ -28,11 +28,19 @@ class AnalyzerState(TypedDict, total=False):
     revision_note: str
     judge_correction: str
     degraded: bool
+    orchestration: dict
+    retrieval_correction: str
+    judge_verdict: str
+    retrieval_rejections: int
+    analyst_rejections: int
+    judge_scores: list
 
 
 TURN_FIELDS = {
     "prompts": [], "errors": [], "guard_rejected": False, "guard_error": "", "guard_failures": 0,
     "revision_note": "", "judge_correction": "", "degraded": False,
+    "orchestration": {}, "retrieval_correction": "", "judge_verdict": "", "retrieval_rejections": 0,
+    "analyst_rejections": 0, "judge_scores": [],
 }
 
 

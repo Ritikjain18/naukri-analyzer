@@ -14,7 +14,9 @@ def make_retrieve_node(sql_tool, pandas_tool=None):
         if tool == "pandas":
             data_slice = pandas_tool(question, df, history=history, trace=trace)
         else:
-            data_slice = sql_tool(question, state["schema"], history=history, trace=trace)
+            sql_question = state.get("orchestration", {}).get("retrieval_instruction") or question
+            data_slice = sql_tool(sql_question, state["schema"], history=history, trace=trace,
+                                  correction=state.get("retrieval_correction", ""))
         return {"query_type": tool, "data_slice": data_slice.head(ROW_CAP),
                 "prompts": list(state.get("prompts", [])) + trace}
 

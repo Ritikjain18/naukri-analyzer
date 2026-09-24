@@ -3,7 +3,7 @@ import pandas as pd
 from graph.nodes.retrieve import make_retrieve_node
 
 
-def _sql(question, schema, history="(none)", trace=None):
+def _sql(question, schema, history="(none)", trace=None, correction=""):
     return pd.DataFrame({"n": [1]})
 
 
@@ -30,3 +30,18 @@ def test_explicit_pandas_tool_keeps_routing():
 
     out = make_retrieve_node(_boom, pd_tool)(_state())
     assert out["query_type"] == "pandas" and called
+
+
+def test_sql_receives_orchestrated_instruction_and_correction():
+    seen = {}
+
+    def sql(question, schema, history="(none)", trace=None, correction=""):
+        seen.update(question=question, correction=correction)
+        return pd.DataFrame({"n": [1]})
+
+    state = {**_state(), "orchestration": {"intent": "i", "retrieval_instruction": "salary by city"},
+             "retrieval_correction": "Group by city."}
+    make_retrieve_node(sql)(state)
+    assert seen == {"question": "salary by city", "correction": "Group by city."}
+    make_retrieve_node(sql)(_state())
+    assert seen == {"question": "average salary by city", "correction": ""}
