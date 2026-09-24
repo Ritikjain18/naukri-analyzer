@@ -34,14 +34,21 @@ def make_analyst_node(llm):
         skill = load_skill(domain) if domain else "(none)"
         prompts = list(state.get("prompts", []))
         base = dict(summary=state.get("data_summary", ""), skill=skill,
-                    history=format_history(state.get("chat_history", [])), question=state["question"])
+                    history=format_history(state.get("chat_history", [])), question=state["question"],
+                    guard_error=(f"Your previous answer failed validation: {state['guard_error']}. "
+                                 "Correct it using only numbers from the data slice.")
+                    if state.get("guard_error") else "",
+                    judge_correction=(f"A reviewer asked you to improve the previous answer: "
+                                      f"{state['judge_correction']}") if state.get("judge_correction") else "",
+                    revision_note=(f"The user asked for a revision: {state['revision_note']}")
+                    if state.get("revision_note") else "")
         worst_note = ERROR_NOTE.format(detail="x" * ERROR_DETAIL_MAX)  # reserve the retry note
-        overhead = count_tokens(render("query", slice="", error_note=worst_note, **base))
+        overhead = count_tokens(render("query", "v2", slice="", error_note=worst_note, **base))
         slice_budget = max(200, effective_limit(MODEL_SMART) - OUTPUT_RESERVE - overhead)
         slice_text = fit_rows(data_slice, slice_budget)
         error_note = ""
         for _ in range(2):
-            prompt = render("query", slice=slice_text, error_note=error_note, **base)
+            prompt = render("query", "v2", slice=slice_text, error_note=error_note, **base)
             prompts.append({"node": "analyst", "prompt": prompt})
             try:
                 insight = Insight(**extract_json(llm.invoke(prompt).content))

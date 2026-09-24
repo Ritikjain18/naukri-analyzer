@@ -92,3 +92,13 @@ def test_analyst_retry_error_note_is_clipped():
     extra = len(llm.prompts[1]) - len(llm.prompts[0])
     assert 0 < extra <= len(ERROR_NOTE) + 400
     assert "z" * 400 not in llm.prompts[1]
+
+
+def test_analyst_prompt_includes_guard_error_judge_correction_and_revision_note():
+    llm = FakeLLM([GOOD])
+    make_analyst_node(llm)(base_state(guard_error="Numbers not found: 45"))
+    assert "failed validation" in llm.prompts[0] and "Numbers not found: 45" in llm.prompts[0]
+    llm = FakeLLM([GOOD])
+    make_analyst_node(llm)(base_state(judge_correction="cite the conversion rate", revision_note="top three only"))
+    assert "cite the conversion rate" in llm.prompts[0] and "top three only" in llm.prompts[0]
+    assert "failed validation" not in llm.prompts[0]

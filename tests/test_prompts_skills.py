@@ -46,3 +46,9 @@ def test_skills_load():
     combined = load_domain_skills()
     assert "job-posting" in combined and "traffic" in combined
     assert "slide-gen" not in combined
+
+
+def test_query_v2_leaves_no_placeholders():
+    out = render("query", "v2", summary="a", skill="b", history="c", slice="d", question="e",
+                 error_note="", guard_error="", judge_correction="", revision_note="")
+    assert "$" not in out

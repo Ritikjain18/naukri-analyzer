@@ -1,3 +1,4 @@
+import copy
 from typing import Optional, TypedDict
 
 import pandas as pd
@@ -21,3 +22,19 @@ class AnalyzerState(TypedDict, total=False):
     insight_memory: list
     prompts: list
     errors: list
+    guard_rejected: bool
+    guard_error: str
+    guard_failures: int
+    revision_note: str
+    judge_correction: str
+    degraded: bool
+
+
+TURN_FIELDS = {
+    "prompts": [], "errors": [], "guard_rejected": False, "guard_error": "", "guard_failures": 0,
+    "revision_note": "", "judge_correction": "", "degraded": False,
+}
+
+
+def new_turn(shared: dict, question: str, **extra) -> dict:
+    return {**shared, **copy.deepcopy(TURN_FIELDS), "question": question, **extra}

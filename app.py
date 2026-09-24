@@ -7,6 +7,7 @@ from graph.build_graph import build_graph
 from graph.llm import build_llm, friendly_error
 from graph.nodes.ingest import make_ingest_node
 from graph.ratelimit import RateLimitManager
+from graph.state import new_turn
 from graph.tools import make_sql_tool
 from graph.viz import build_figure
 
@@ -52,6 +53,8 @@ def render_assistant(m):
     for e in ins["evidence"]:
         st.markdown(f"- {e}")
     st.markdown(f"*Recommendation:* {ins['recommendation']}")
+    if m.get("degraded"):
+        st.warning("Answer failed validation — showing the raw data instead.")
     if m["chart"] is not None:
         st.plotly_chart(build_figure(m["chart"], m["slice"]), width="stretch")
     for err in m["errors"]:
@@ -98,11 +101,12 @@ if question:
     with st.chat_message("assistant"):
         try:
             with st.spinner("Analysing..."):
-                result = graph.invoke({**shared, "question": question, "prompts": [], "errors": []})
+                result = graph.invoke(new_turn(shared, question))
             shared.update({k: result[k] for k in PERSISTED if k in result})
             msg = {"role": "assistant", "insight": result["insight"].model_dump(),
                    "chart": result.get("chart_config"), "slice": result["data_slice"],
-                   "prompts": result["prompts"], "errors": result.get("errors", [])}
+                   "prompts": result["prompts"], "errors": result.get("errors", []),
+                   "degraded": bool(result.get("degraded"))}
             messages.append(msg)
             render_assistant(msg)
         except Exception as exc:
