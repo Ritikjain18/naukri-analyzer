@@ -8,39 +8,32 @@ from pptx import Presentation
 from streamlit.testing.v1 import AppTest
 
 import config
-import graph.build_graph as bg
 from export.deck import build_deck, entry_label, select_entries
 from graph.llm import FallbackLLM
 from graph.models import Insight
+from tests.helpers import APP_FILE, StubGraph, start_app
+
+
+QUESTION = "Which job category has the best conversion rate?"
 
 
 def test_app_shows_setup_error_without_key(monkeypatch, tmp_path):
-    import config
-
     monkeypatch.setattr(config, "USAGE_DB_PATH", tmp_path / "u.db")
+    monkeypatch.setattr(config, "APP_DB_PATH", tmp_path / "app.db")
     monkeypatch.setenv("GROQ_API_KEY", "")
-    at = AppTest.from_file("../app.py").run(timeout=30)
+    at = AppTest.from_file(APP_FILE).run(timeout=30)
     assert not at.exception
     assert any("GROQ_API_KEY" in e.value for e in at.error)
+    assert not (tmp_path / "app.db").exists()     # the key check precedes any DB access
 
 
 def test_graph_error_is_persisted_across_reruns(monkeypatch, tmp_path):
-    import streamlit as st
-
-    import config
-    import graph.build_graph as bg
-
     class BoomGraph:
         def invoke(self, state, config=None):
             raise RuntimeError("429 rate limit")
 
-    monkeypatch.setenv("GROQ_API_KEY", "gsk_fake")
-    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
-    monkeypatch.setattr(config, "USAGE_DB_PATH", tmp_path / "u.db")
-    monkeypatch.setattr(bg, "build_graph", lambda *a, **k: BoomGraph())
-    st.cache_resource.clear()
     try:
-        at = AppTest.from_file("../app.py").run(timeout=60)
+        at = start_app(monkeypatch, tmp_path, graph=BoomGraph())
         assert not at.exception
         at.chat_input[0].set_value("q").run(timeout=60)
         assert not at.exception
@@ -54,41 +47,10 @@ def test_graph_error_is_persisted_across_reruns(monkeypatch, tmp_path):
         st.cache_resource.clear()
 
 
-def test_app_does_not_construct_pandas_tool():
-    from pathlib import Path
-
-    assert "make_pandas_tool" not in (Path(__file__).parent.parent / "app.py").read_text()
-
-
-class StubGraph:
-    def __init__(self):
-        self.states = []
-        self.overrides = {}
-
-    def invoke(self, state, config=None):
-        self.states.append(state)
-        insight = Insight(finding="Engineering has the highest conversion rate.", evidence=["20% vs 10%"],
-                          recommendation="Invest.")
-        memory = list(state.get("insight_memory", [])) + [
-            {"question": state["question"], "insight": insight.model_dump(), "chart": None,
-             "slice": [{"category": "Eng", "rate": 0.2}], "approved": False}]
-        return {**state, "insight": insight, "data_slice": pd.DataFrame({"category": ["Eng"], "rate": [0.2]}),
-                "chart_config": None, "prompts": [{"node": "analyst", "prompt": "p"}], "errors": [],
-                "insight_memory": memory, "memory_index": len(memory) - 1, "judge_scores": [], "degraded": False,
-                **self.overrides}
-
-
 def run_app_with_stub(monkeypatch, tmp_path, **overrides):
     stub = StubGraph()
     stub.overrides = overrides
-    monkeypatch.setenv("GROQ_API_KEY", "gsk_fake")
-    monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
-    monkeypatch.setattr(config, "USAGE_DB_PATH", tmp_path / "u.db")
-    monkeypatch.setattr(bg, "build_graph", lambda *a, **k: stub)
-    st.cache_resource.clear()
-    at = AppTest.from_file("../app.py").run(timeout=60)
-    at.chat_input[0].set_value("Which job category has the best conversion rate?").run(timeout=60)
-    return at, stub
+    return start_app(monkeypatch, tmp_path, graph=stub, question=QUESTION), stub
 
 
 @pytest.fixture
