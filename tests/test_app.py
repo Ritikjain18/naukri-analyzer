@@ -1,7 +1,10 @@
 from streamlit.testing.v1 import AppTest
 
 
-def test_app_shows_setup_error_without_key(monkeypatch):
+def test_app_shows_setup_error_without_key(monkeypatch, tmp_path):
+    import config
+
+    monkeypatch.setattr(config, "USAGE_DB_PATH", tmp_path / "u.db")
     monkeypatch.setenv("GROQ_API_KEY", "")
     at = AppTest.from_file("../app.py").run(timeout=30)
     assert not at.exception
@@ -20,6 +23,7 @@ def test_graph_error_is_persisted_across_reruns(monkeypatch, tmp_path):
 
     monkeypatch.setenv("GROQ_API_KEY", "gsk_fake")
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
+    monkeypatch.setattr(config, "USAGE_DB_PATH", tmp_path / "u.db")
     monkeypatch.setattr(bg, "build_graph", lambda *a, **k: BoomGraph())
     st.cache_resource.clear()
     try:

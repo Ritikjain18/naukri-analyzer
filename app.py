@@ -4,8 +4,9 @@ import config
 from data.seed import seed_database
 from data.store import SQLiteStore
 from graph.build_graph import build_graph
-from graph.llm import friendly_error, get_llm
+from graph.llm import build_llm, friendly_error
 from graph.nodes.ingest import make_ingest_node
+from graph.ratelimit import RateLimitManager
 from graph.tools import make_sql_tool
 from graph.viz import build_figure
 
@@ -26,13 +27,14 @@ def get_runtime():
     store = SQLiteStore(config.DB_PATH)
     if not store.list_tables():
         seed_database(store)
-    fast = get_llm(config.MODEL_FAST)
-    smart = get_llm(config.MODEL_SMART)
+    manager = RateLimitManager(config.USAGE_DB_PATH)
+    fast = build_llm([config.MODEL_FAST], manager)
+    smart = build_llm([config.MODEL_SMART, config.MODEL_FAST], manager)
     graph = build_graph(store, fast, smart, make_sql_tool(store, fast))
-    return store, make_ingest_node(store, fast), graph
+    return store, make_ingest_node(store, fast), graph, (fast, smart)
 
 
-store, ingest_node, graph = get_runtime()
+store, ingest_node, graph, llms = get_runtime()
 shared = st.session_state.setdefault("shared", {})
 messages = st.session_state.setdefault("messages", [])
 
