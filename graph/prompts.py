@@ -1,14 +1,23 @@
+import re
 from string import Template
 
 from config import ROOT
 
 PROMPTS_DIR = ROOT / "prompts"
 _OVERRIDES: dict[str, str] = {}
+_REQUIRED: dict[str, set[str]] = {}
+_PLACEHOLDER = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
-def set_overrides(overrides: dict[str, str]) -> None:
-    global _OVERRIDES
+def placeholders(text: str) -> set[str]:
+    # "$$" is an escaped literal dollar in string.Template, never a placeholder.
+    return {a or b for a, b in _PLACEHOLDER.findall(text.replace("$$", ""))}
+
+
+def set_overrides(overrides: dict[str, str], required: dict[str, set[str]] | None = None) -> None:
+    global _OVERRIDES, _REQUIRED
     _OVERRIDES = dict(overrides)
+    _REQUIRED = {k: set(v) for k, v in (required or {}).items()}
 
 
 def get_overrides() -> dict[str, str]:
@@ -17,9 +26,16 @@ def get_overrides() -> dict[str, str]:
 
 def effective_version(name: str, requested: str) -> str:
     override = _OVERRIDES.get(name)
-    if override and (PROMPTS_DIR / f"{name}.{override}.txt").exists():
-        return override
-    return requested
+    if not override:
+        return requested
+    path = PROMPTS_DIR / f"{name}.{override}.txt"
+    try:
+        text = path.read_text()
+    except OSError:
+        return requested
+    if _REQUIRED.get(name, set()) - placeholders(text):
+        return requested
+    return override
 
 
 def load_prompt(name: str, version: str = "v1") -> str:

@@ -1,10 +1,14 @@
 import json
+import logging
 import re
 
 import config
 from accounts.auth import AccountError
 from accounts.db import AppDB, iso
 from graph import prompts as prompt_registry
+from graph.prompts import placeholders  # noqa: F401  (re-exported)
+
+log = logging.getLogger(__name__)
 
 REQUIRED_VARS = {
     "data_understanding": {"skills", "schema", "sample"},
@@ -16,12 +20,7 @@ REQUIRED_VARS = {
     "visualization": {"insight", "columns", "error_note"},
     "session_summary": {"record"},
 }
-_PLACEHOLDER = re.compile(r"\$(\w+)|\$\{(\w+)\}")
-_VERSION = re.compile(r"v\d+")
-
-
-def placeholders(text: str) -> set[str]:
-    return {a or b for a, b in _PLACEHOLDER.findall(text)}
+_VERSION = re.compile(r"v[0-9]+")
 
 
 def _version_key(version: str) -> int:
@@ -83,7 +82,17 @@ class PromptSettings:
         self.db.execute("DELETE FROM prompt_settings WHERE name = ?", (name,))
 
     def apply(self) -> None:
-        prompt_registry.set_overrides(self.overrides())
+        good = {}
+        for name, version in self.overrides().items():
+            try:
+                ok = name in REQUIRED_VARS and version in self.versions(name) and not self._missing(name, version)
+            except OSError:
+                ok = False
+            if ok:
+                good[name] = version
+            else:
+                log.warning("Skipping unusable prompt override %s.%s", name, version)
+        prompt_registry.set_overrides(good, REQUIRED_VARS)
 
 
 class AppSettings:
@@ -92,18 +101,33 @@ class AppSettings:
     def __init__(self, db: AppDB):
         self.db = db
 
+    @staticmethod
+    def _valid(key: str, value) -> bool:
+        kind = AppSettings.ALLOWED[key]
+        if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
+            return False
+        return not (key == "JUDGE_MIN_SCORE" and not 1 <= value <= 5)
+
     def get(self, key: str):
         row = self.db.one("SELECT value_json FROM app_settings WHERE key = ?", (key,))
-        return json.loads(row["value_json"]) if row else getattr(config, key)
+        if row:
+            try:
+                value = json.loads(row["value_json"])
+            except (ValueError, TypeError):
+                value = None
+            if key in self.ALLOWED and self._valid(key, value):
+                return value
+            log.warning("Ignoring invalid stored setting %s", key)
+        return getattr(config, key)
 
     def set(self, key: str, value, user_id) -> None:
         kind = self.ALLOWED.get(key)
         if kind is None:
             raise AccountError("Unknown setting.")
-        if not isinstance(value, kind) or (kind is int and isinstance(value, bool)):
+        if not self._valid(key, value):
+            if key == "JUDGE_MIN_SCORE" and isinstance(value, int) and not isinstance(value, bool):
+                raise AccountError("JUDGE_MIN_SCORE must be between 1 and 5.")
             raise AccountError(f"{key} must be a {kind.__name__}.")
-        if key == "JUDGE_MIN_SCORE" and not 1 <= value <= 5:
-            raise AccountError("JUDGE_MIN_SCORE must be between 1 and 5.")
         with self.db.lock:
             self.db.execute(
                 "INSERT INTO app_settings (key, value_json, updated_by, ts_utc) VALUES (?,?,?,?)"

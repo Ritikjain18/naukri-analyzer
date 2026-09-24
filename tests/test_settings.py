@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 
 import config
@@ -30,7 +32,9 @@ def ps(tmp_path, pdir):
 
 
 def test_placeholders():
-    assert placeholders("a $x and ${y} and $z_1 $$") >= {"x", "z_1"}
+    assert placeholders("a $x and ${y} and $z_1 $$") == {"x", "y", "z_1"}
+    assert placeholders("$$x and $$$y") == {"y"}
+    assert placeholders("cost $5 and ${y}") == {"y"}
 
 
 def test_versions_sorted_numerically_and_compatibility(ps):
@@ -124,3 +128,72 @@ def test_apply_takes_effect_in_judge_node(tmp_path, monkeypatch):
     s.apply()
     out = node(state)
     assert len(llm.prompts) == 1 and out["judge_scores"][-1]["accepted"] is True
+
+
+def test_unicode_digit_versions_rejected(ps, pdir):
+    write(pdir, "sql", "v\u0661", "$schema $limit $history $question $correction $error_note")
+    assert "v\u0661" not in ps.versions("sql")
+    with pytest.raises(AccountError):
+        ps.set_active("sql", "v\u0661", user_id=1)
+
+
+def _render_sql():
+    return prompts.render("sql", "v3", schema="S", limit=77, history="h", question="Q",
+                          correction="C", error_note="E")
+
+
+def test_override_edited_incompatible_is_not_applied(ps, pdir, monkeypatch, caplog):
+    monkeypatch.setattr(prompts, "PROMPTS_DIR", pdir)
+    ps.set_active("sql", "v2", user_id=1)
+    write(pdir, "sql", "v2", "$schema $history $question $correction $error_note")   # dropped $limit
+    with caplog.at_level(logging.WARNING):
+        ps.apply()
+    assert prompts.get_overrides() == {}
+    assert "sql" in caplog.text and "v2" in caplog.text
+    out = _render_sql()
+    assert "77" in out and "$limit" not in out
+
+
+def test_effective_version_guards_incompatible_file_directly(pdir, monkeypatch):
+    monkeypatch.setattr(prompts, "PROMPTS_DIR", pdir)
+    write(pdir, "sql", "v2", "$schema $question")
+    prompts.set_overrides({"sql": "v2"}, REQUIRED_VARS)
+    assert prompts.effective_version("sql", "v3") == "v3"
+    assert "77" in _render_sql()
+
+
+def test_override_with_deleted_file_ignored(ps, pdir, monkeypatch):
+    monkeypatch.setattr(prompts, "PROMPTS_DIR", pdir)
+    ps.set_active("sql", "v2", user_id=1)
+    (pdir / "sql.v2.txt").unlink()
+    ps.apply()
+    assert prompts.get_overrides() == {}
+    assert prompts.effective_version("sql", "v3") == "v3"
+
+
+def test_compatible_override_applies(ps, pdir, monkeypatch):
+    monkeypatch.setattr(prompts, "PROMPTS_DIR", pdir)
+    write(pdir, "sql", "v2", "MARK $schema $limit $history $question $correction $error_note")
+    ps.set_active("sql", "v2", user_id=1)
+    ps.apply()
+    assert prompts.effective_version("sql", "v3") == "v2"
+    assert _render_sql().startswith("MARK")
+
+
+@pytest.mark.parametrize("key,raw", [
+    ("JUDGE_MIN_SCORE", "not json{"), ("JUDGE_MIN_SCORE", '"x"'), ("JUDGE_MIN_SCORE", "9"),
+    ("JUDGE_MIN_SCORE", "0"), ("JUDGE_MIN_SCORE", "true"), ("JUDGE_ENABLED", '"yes"'),
+    ("JUDGE_ENABLED", "1"), ("JUDGE_RETRIEVAL", "null"),
+])
+def test_corrupt_stored_setting_falls_back(tmp_path, monkeypatch, caplog, key, raw):
+    db = AppDB(tmp_path / "a.db")
+    db.execute("INSERT INTO app_settings (key, value_json, updated_by, ts_utc) VALUES (?,?,?,?)",
+               (key, raw, 1, "2026-01-01T00:00:00Z"))
+    s = AppSettings(db)
+    default = getattr(config, key)
+    with caplog.at_level(logging.WARNING):
+        assert s.get(key) == default
+    assert key in caplog.text
+    monkeypatch.setattr(config, key, default)
+    s.apply(config)
+    assert getattr(config, key) == default
