@@ -101,9 +101,13 @@ class AppDB:
 
     def execute(self, sql: str, params=()) -> sqlite3.Cursor:
         with self._lock:
-            cur = self._conn.execute(sql, params)
-            self._conn.commit()
-            return cur
+            try:
+                cur = self._conn.execute(sql, params)
+                self._conn.commit()
+                return cur
+            except Exception:
+                self._conn.rollback()
+                raise
 
     def insert(self, sql: str, params=()) -> int:
         return self.execute(sql, params).lastrowid

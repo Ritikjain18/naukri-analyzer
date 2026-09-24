@@ -63,3 +63,16 @@ def test_threads_can_share_the_connection(tmp_path):
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert not errors and db.one("SELECT COUNT(*) AS n FROM app_settings")["n"] == 80
+
+
+def test_failed_statement_rolls_back_and_releases_write_lock(tmp_path):
+    path = tmp_path / "a.db"
+    db = AppDB(path)
+    sql = "INSERT INTO users (username, password_hash, role, created_at) VALUES (?,?,?,?)"
+    db.insert(sql, ("alice", "h", "analyst", "t"))
+    with pytest.raises(sqlite3.IntegrityError):
+        db.insert(sql, ("ALICE", "h", "analyst", "t"))
+    assert not db._conn.in_transaction
+    other = AppDB(path)
+    other.insert(sql, ("bob", "h", "analyst", "t"))
+    assert other.one("SELECT COUNT(*) AS n FROM users")["n"] == 2

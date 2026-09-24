@@ -14,3 +14,10 @@ def _offline_token_estimator():
 @pytest.fixture
 def store(tmp_path):
     return SQLiteStore(tmp_path / "test.db")
+
+
+@pytest.fixture(autouse=True)
+def _fast_scrypt(monkeypatch):
+    from accounts import auth
+
+    monkeypatch.setattr(auth, "SCRYPT_N", 16)
