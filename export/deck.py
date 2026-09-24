@@ -133,3 +133,12 @@ def build_deck(entries: list[dict]) -> bytes:
     buf = BytesIO()
     prs.save(buf)
     return buf.getvalue()
+
+
+def entry_label(i: int, entry: dict) -> str:
+    return f"{i + 1}. {entry['insight']['finding'][:60]}"
+
+
+def select_entries(memory: list[dict], labels: list[str]) -> list[dict]:
+    wanted = set(labels)
+    return [e for i, e in enumerate(memory) if entry_label(i, e) in wanted]

@@ -1,8 +1,10 @@
+import pandas as pd
 import streamlit as st
 
 import config
 from data.seed import seed_database
 from data.store import SQLiteStore
+from export.deck import build_deck, entry_label, select_entries
 from graph.build_graph import build_graph
 from graph.llm import build_llm, friendly_error
 from graph.nodes.ingest import make_ingest_node
@@ -103,9 +105,12 @@ def render_assistant(m, i):
     for err in m["errors"]:
         st.caption(err)
     if m.get("models"):
-        st.caption("Models: " + ", ".join(m["models"]))
+        st.caption("Answered by: " + ", ".join(m["models"]))
     with st.expander("Data used"):
         st.dataframe(m["slice"])
+    if m.get("judge_scores"):
+        with st.expander("Judge scores"):
+            st.dataframe(pd.DataFrame(m["judge_scores"]))
     render_prompts(m["prompts"])
     render_feedback(m, i)
 
@@ -129,6 +134,17 @@ with st.sidebar:
             for p in st.session_state.get("ingest_prompts", []):
                 st.caption(p["node"])
                 st.code(p["prompt"], language="text")
+
+    memory = shared.get("insight_memory", [])
+    if memory:
+        st.header("Slide deck")
+        labels = [entry_label(i, e) for i, e in enumerate(memory)]
+        approved = [entry_label(i, e) for i, e in enumerate(memory) if e.get("approved")]
+        picked = st.multiselect("Insights to export", labels, default=approved or labels)
+        chosen = select_entries(memory, picked)
+        if chosen:
+            st.download_button("Export slide deck", data=build_deck(chosen), file_name="naukri_insights.pptx",
+                               mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
 
 for i, m in enumerate(messages):
     with st.chat_message(m["role"]):

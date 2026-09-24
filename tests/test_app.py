@@ -1,10 +1,15 @@
+from io import BytesIO
+
 import pandas as pd
 import pytest
 import streamlit as st
+from pptx import Presentation
 from streamlit.testing.v1 import AppTest
 
 import config
 import graph.build_graph as bg
+from export.deck import build_deck, entry_label, select_entries
+from graph.llm import FallbackLLM
 from graph.models import Insight
 
 
@@ -72,18 +77,23 @@ class StubGraph:
                 **self.overrides}
 
 
-@pytest.fixture
-def app_with_stub(monkeypatch, tmp_path):
+def run_app_with_stub(monkeypatch, tmp_path, **overrides):
     stub = StubGraph()
+    stub.overrides = overrides
     monkeypatch.setenv("GROQ_API_KEY", "gsk_fake")
     monkeypatch.setattr(config, "DB_PATH", tmp_path / "t.db")
     monkeypatch.setattr(config, "USAGE_DB_PATH", tmp_path / "u.db")
     monkeypatch.setattr(bg, "build_graph", lambda *a, **k: stub)
     st.cache_resource.clear()
+    at = AppTest.from_file("../app.py").run(timeout=60)
+    at.chat_input[0].set_value("Which job category has the best conversion rate?").run(timeout=60)
+    return at, stub
+
+
+@pytest.fixture
+def app_with_stub(monkeypatch, tmp_path):
     try:
-        at = AppTest.from_file("../app.py").run(timeout=60)
-        at.chat_input[0].set_value("Which job category has the best conversion rate?").run(timeout=60)
-        yield at, stub
+        yield run_app_with_stub(monkeypatch, tmp_path)
     finally:
         st.cache_resource.clear()
 
@@ -112,3 +122,43 @@ def test_revise_sends_note_and_previous_finding(app_with_stub):
     msgs = at.session_state["messages"]
     assert [m["role"] for m in msgs][-2:] == ["user", "assistant"]
     assert msgs[-2]["content"] == "Revise: focus on Mumbai"
+
+
+SCORES = [{"stage": "analyst", "relevance": 4, "specificity": 3, "actionability": 5, "accepted": True}]
+
+
+def test_judge_scores_models_and_export_selector_appear(monkeypatch, tmp_path):
+    monkeypatch.setattr(FallbackLLM, "used_models", lambda self: ["llama-3.3-70b-versatile"])
+    try:
+        at, _ = run_app_with_stub(monkeypatch, tmp_path, judge_scores=SCORES)
+        assert not at.exception
+        assert any("Judge scores" in e.label for e in at.expander)
+        assert any("Answered by: llama-3.3-70b-versatile" in c.value for c in at.caption)
+        assert not any(c.value.startswith("Models:") for c in at.caption)
+        assert at.sidebar.multiselect[0].value == ["1. Engineering has the highest conversion rate."]
+    finally:
+        st.cache_resource.clear()
+
+
+def test_degraded_message_shows_warning(monkeypatch, tmp_path):
+    try:
+        at, _ = run_app_with_stub(monkeypatch, tmp_path, degraded=True)
+        assert any("failed validation" in w.value for w in at.warning)
+        assert at.session_state["messages"][1]["memory_index"] is None   # degraded answers are not pinned
+    finally:
+        st.cache_resource.clear()
+
+
+def test_entry_selection_and_deck_round_trip():
+    memory = [
+        {"question": "q1", "approved": True, "chart": None, "slice": [{"a": 1}],
+         "insight": {"finding": "First finding is long enough.", "evidence": ["e1"], "recommendation": "r1"}},
+        {"question": "q2", "approved": False, "chart": None, "slice": [],
+         "insight": {"finding": "Second finding is also fine.", "evidence": ["e2"], "recommendation": "r2"}},
+    ]
+    labels = [entry_label(i, e) for i, e in enumerate(memory)]
+    assert labels[0].startswith("1. First finding")
+    chosen = select_entries(memory, [labels[1]])
+    assert [e["question"] for e in chosen] == ["q2"]
+    prs = Presentation(BytesIO(build_deck(select_entries(memory, labels))))
+    assert len(prs.slides) == 2
