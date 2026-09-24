@@ -96,6 +96,10 @@ class AppDB:
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             self._conn.commit()
 
+    @property
+    def lock(self) -> threading.RLock:
+        return self._lock
+
     def now(self) -> datetime:
         return self._clock()
 
