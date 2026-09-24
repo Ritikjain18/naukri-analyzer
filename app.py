@@ -79,6 +79,8 @@ for m in messages:
     with st.chat_message(m["role"]):
         if m["role"] == "user":
             st.write(m["content"])
+        elif "error" in m:
+            st.error(m["error"])
         else:
             render_assistant(m)
 
@@ -98,4 +100,6 @@ if question:
             messages.append(msg)
             render_assistant(msg)
         except Exception as exc:
-            st.error(friendly_error(exc))
+            err = {"role": "assistant", "error": friendly_error(exc)}
+            messages.append(err)
+            st.error(err["error"])
