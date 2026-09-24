@@ -1,0 +1,8 @@
+[
+  {"question": "Which job category has the highest application-to-view conversion rate?", "expect_tool": "sql"},
+  {"question": "What is the drop-off rate at each hiring funnel stage?", "expect_tool": "sql"},
+  {"question": "Which traffic source has the highest average bounce rate?", "expect_tool": "sql"},
+  {"question": "How many open job postings are there in each location?", "expect_tool": "sql"},
+  {"question": "How do average session durations compare across traffic sources?", "expect_tool": "sql"},
+  {"question": "Which recruiters have the lowest average response rate?", "expect_tool": "sql"}
+]
