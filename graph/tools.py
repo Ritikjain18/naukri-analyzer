@@ -22,7 +22,7 @@ def make_sql_tool(store, llm, row_cap: int = ROW_CAP):
             correction: str = "") -> pd.DataFrame:
         error_note = ""
         for _ in range(2):
-            prompt = render("sql", "v2", schema=schema, limit=row_cap, history=history, question=question,
+            prompt = render("sql", "v3", schema=schema, limit=row_cap, history=history, question=question,
                             correction=(f"A reviewer asked for this change: {correction}" if correction else ""),
                             error_note=error_note)
             sql = extract_sql(llm.invoke(prompt).content)

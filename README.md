@@ -31,3 +31,5 @@ The app assumes a single local user: uploads write to the shared local SQLite da
     pytest -m live tests/test_live_smoke.py   # live eval, needs GROQ_API_KEY, uses Groq tokens
 
 See `docs/superpowers/specs/` and `docs/superpowers/plans/`.
+
+The SQL prompt (v3) forces real division for rates, ratios and percentages (`CAST(... AS REAL)` with `NULLIF`), avoiding SQLite's integer truncation.

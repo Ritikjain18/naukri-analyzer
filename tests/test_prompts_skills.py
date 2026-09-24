@@ -59,3 +59,10 @@ def test_query_v2_leaves_no_placeholders():
 def test_sql_v2_renders_with_correction():
     out = render("sql", "v2", schema="s", limit=200, history="h", question="q", correction="Fix X.", error_note="")
     assert "Fix X." in out and not re.search(r"\$[A-Za-z_]+", out)
+
+
+def test_sql_v3_has_real_division_guidance_and_renders_fully():
+    raw = load_prompt("sql", "v3")
+    assert "CAST" in raw and "NULLIF" in raw and "integer" in raw.lower()
+    out = render("sql", "v3", schema="s", limit=200, history="h", question="q", correction="", error_note="")
+    assert not re.search(r"\$[A-Za-z_]+", out)
