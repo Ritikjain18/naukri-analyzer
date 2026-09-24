@@ -9,8 +9,10 @@ Multi-agent HR analytics on Groq + LangGraph + Streamlit. Phase 1 runs on SQLite
     python -m data.seed         # optional; the app seeds an empty DB itself
     streamlit run app.py
 
+The app assumes a single local user: uploads write to the shared local SQLite database.
+
 ## Tests
-    pytest                      # offline unit + graph tests
-    GROQ_API_KEY=... pytest tests/test_live_smoke.py   # live eval, uses Groq tokens
+    pytest                      # always offline (live tests are deselected)
+    pytest -m live tests/test_live_smoke.py   # live eval, needs GROQ_API_KEY, uses Groq tokens
 
 See `docs/superpowers/specs/` and `docs/superpowers/plans/`.

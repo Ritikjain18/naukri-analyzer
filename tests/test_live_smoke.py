@@ -12,7 +12,10 @@ from graph.tools import make_pandas_tool, make_sql_tool
 
 QUESTIONS = json.loads((Path(__file__).parent / "eval_questions.json").read_text())
 
-pytestmark = pytest.mark.skipif(not os.environ.get("GROQ_API_KEY"), reason="GROQ_API_KEY not set")
+pytestmark = [
+    pytest.mark.live,
+    pytest.mark.skipif(not os.environ.get("GROQ_API_KEY"), reason="GROQ_API_KEY not set"),
+]
 
 
 @pytest.fixture(scope="module")
