@@ -66,3 +66,10 @@ def test_sql_v3_has_real_division_guidance_and_renders_fully():
     assert "CAST" in raw and "NULLIF" in raw and "integer" in raw.lower()
     out = render("sql", "v3", schema="s", limit=200, history="h", question="q", correction="", error_note="")
     assert not re.search(r"\$[A-Za-z_]+", out)
+
+
+def test_orchestrator_v2_and_query_v3_leave_no_placeholders():
+    o = render("orchestrator", "v2", **VARS["orchestrator"], prior_context="p")
+    q = render("query", "v3", summary="a", skill="b", history="c", slice="d", question="e", error_note="",
+               guard_error="", judge_correction="", revision_note="", prior_context="p")
+    assert not re.search(r"\$[A-Za-z_]+", o) and not re.search(r"\$[A-Za-z_]+", q)

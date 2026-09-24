@@ -1,6 +1,6 @@
 import config
 from graph.llm import RateLimitExhausted, is_rate_limit
-from graph.nodes.analyst import format_history
+from graph.nodes.analyst import format_history, prior_context_block
 from graph.parsing import extract_json
 from graph.prompts import render
 
@@ -11,8 +11,9 @@ def make_orchestrate_node(llm):
         fallback = {"intent": question, "retrieval_instruction": question}
         if not config.JUDGE_ENABLED:
             return {"orchestration": fallback, "query_type": "sql"}
-        prompt = render("orchestrator", schema=state.get("schema", ""), summary=state.get("data_summary", ""),
-                        history=format_history(state.get("chat_history", [])), question=question)
+        prompt = render("orchestrator", "v2", schema=state.get("schema", ""), summary=state.get("data_summary", ""),
+                        history=format_history(state.get("chat_history", [])), question=question,
+                        prior_context=prior_context_block(state))
         prompts = list(state.get("prompts", [])) + [{"node": "orchestrate", "prompt": prompt}]
         errors = list(state.get("errors", []))
         try:

@@ -35,6 +35,7 @@ class AnalyzerState(TypedDict, total=False):
     analyst_rejections: int
     judge_scores: list
     memory_index: int
+    prior_context: str
 
 
 TURN_FIELDS = {
