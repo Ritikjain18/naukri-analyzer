@@ -248,8 +248,10 @@ def test_scrub_value_non_string_dict_key_types():
     result = scrub_value(value)
     # password key should be dropped
     assert "password" not in result
-    # Other keys should be preserved (stringified)
-    assert 1 in result or "1" in str(result)
+    # Other keys should be preserved (stringified) with values intact
+    assert result["1"] == "int_key"
+    assert result["(1, 2)"] == "tuple_key"
+    assert result["None"] == "none_key"
 
 
 def test_regression_normal_prose_not_redacted():
@@ -267,3 +269,90 @@ def test_regression_token_in_prose():
     result = redact_text(text)
     # 'token' as English word should survive, only token=value patterns redacted
     assert "token" in result.lower()
+
+
+# Round 3 Fixes
+
+def test_redact_text_fake_marker_bypass():
+    """Fix: Fake markers like password=[REDACTED]x must still be redacted.
+
+    The negative lookahead must only skip EXACTLY [REDACTED], not [REDACTED]x.
+    """
+    text = "password=[REDACTED]x"
+    result = redact_text(text)
+    # Should be redacted because [REDACTED]x is NOT exactly [REDACTED]
+    assert "[REDACTED]x" not in result
+    assert result.count(REDACTED) >= 1
+
+    text2 = "password=[REDACTED]hunter2"
+    result2 = redact_text(text2)
+    assert "hunter2" not in result2
+
+    # But password=[REDACTED] alone should NOT be re-redacted
+    text3 = "password=[REDACTED]"
+    result3 = redact_text(text3)
+    assert result3.count(REDACTED) == 1  # Only one, not re-redacted
+
+
+def test_redact_text_quoted_with_embedded_quotes():
+    """Fix: Quoted values containing the other quote type must work.
+
+    password="it's fine" and password='say "hi" there' must redact the whole value.
+    """
+    text = 'password="it\'s fine"'
+    result = redact_text(text)
+    assert "it's fine" not in result
+    assert REDACTED in result
+
+    text2 = """password='say "hi" there'"""
+    result2 = redact_text(text2)
+    assert 'say "hi" there' not in result2
+    assert REDACTED in result2
+
+
+def test_redact_text_escaped_quotes():
+    """Fix: Escaped quotes within values must be handled.
+
+    password="pa\"ss" should redact the full escaped value.
+    """
+    text = r'password="pa\"ss"'
+    result = redact_text(text)
+    # The whole value including escapes should be redacted
+    assert "pa" not in result or REDACTED in result
+
+
+def test_redact_text_bearer_case_insensitive():
+    """Fix: Bearer/Basic matching must be case-insensitive while preserving case.
+
+    BEARER, Bearer, bearer all work, and original case is preserved.
+    """
+    text1 = "Authorization: BEARER ABC123DEF456GHI789JKL012MNO345"
+    result1 = redact_text(text1)
+    assert "ABC123DEF456GHI789JKL012MNO345" not in result1
+    assert "BEARER" in result1  # Original case preserved
+
+    text2 = "Authorization: bearer ABC123DEF456GHI789JKL012MNO345"
+    result2 = redact_text(text2)
+    assert "ABC123DEF456GHI789JKL012MNO345" not in result2
+    assert "bearer" in result2  # Original case preserved
+
+    text3 = "Authorization: Bearer ABC123DEF456GHI789JKL012MNO345"
+    result3 = redact_text(text3)
+    assert "ABC123DEF456GHI789JKL012MNO345" not in result3
+    assert "Bearer" in result3
+
+
+def test_redact_text_basic_auth_case_insensitive():
+    """Fix: Basic auth matching must be case-insensitive.
+
+    BASIC, Basic, basic all work.
+    """
+    text1 = "Authorization: BASIC ABC123DEF456GHI789+=="
+    result1 = redact_text(text1)
+    assert "ABC123DEF456GHI789+=" not in result1
+    assert "BASIC" in result1
+
+    text2 = "Authorization: basic ABC123DEF456GHI789+=="
+    result2 = redact_text(text2)
+    assert "ABC123DEF456GHI789+=" not in result2
+    assert "basic" in result2

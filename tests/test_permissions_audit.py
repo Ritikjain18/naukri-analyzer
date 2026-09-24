@@ -143,46 +143,89 @@ def test_roles_export_matches_auth():
 
 
 def test_record_with_non_string_dict_keys(audit):
-    """Fix: record() must handle non-string dict keys without raising TypeError."""
+    """Fix: record() must handle non-string dict keys without raising TypeError.
+
+    The detail must be stored WITHOUT scrub_error, with stringified keys and values intact.
+    """
     alice = User(1, "alice", "analyst", True)
-    # This should not raise TypeError
     audit.record(alice, "test", metadata={1: "int_key", (2, 3): "tuple_key"})
     rows = audit.query()
     assert len(rows) == 1
     assert rows[0]["action"] == "test"
+    detail = rows[0]["detail"]
+    # scrub_error should NOT be present for valid (non-raising) data
+    assert "scrub_error" not in detail
+    # Keys should be stringified, values preserved
+    assert detail["metadata"]["1"] == "int_key"
+    assert detail["metadata"]["(2, 3)"] == "tuple_key"
 
 
 def test_record_with_bytes_value(audit):
-    """Fix: record() must handle bytes values gracefully."""
+    """Fix: record() must handle bytes values gracefully.
+
+    Bytes should be stored as exactly "[bytes]" placeholder, not repr().
+    """
     alice = User(1, "alice", "analyst", True)
-    # This should not raise
     audit.record(alice, "test", data=b"some_bytes")
     rows = audit.query()
     assert len(rows) == 1
-    # bytes should be scrubbed as "[bytes]"
-    assert "[bytes]" in rows[0]["detail"].get("data", "")
+    detail = rows[0]["detail"]
+    # scrub_error should NOT be present
+    assert "scrub_error" not in detail
+    # bytes must be exactly "[bytes]", not repr output
+    assert detail["data"] == "[bytes]"
 
 
 def test_record_with_cyclic_reference(audit):
-    """Fix: record() must handle cyclic references without hanging."""
+    """Fix: record() must handle cyclic references without hanging.
+
+    Cyclic references should be stored with [TRUNCATED] marker, not scrub_error.
+    """
     alice = User(1, "alice", "analyst", True)
     lst = []
     lst.append(lst)  # Create cycle
-    # This should not hang or raise
     audit.record(alice, "test", data=lst)
     rows = audit.query()
     assert len(rows) == 1
+    detail = rows[0]["detail"]
+    # scrub_error should NOT be present for cyclic refs (they are handled)
+    assert "scrub_error" not in detail
+    # Cyclic ref (list containing self) should be marked as list with [TRUNCATED] marker
+    assert detail["data"] == ["[TRUNCATED]"]
 
 
-def test_record_scrub_error_degradation(audit):
-    """Fix: If scrubbing fails, record() should degrade to storing scrub_error marker."""
-    # This is a backup test - the primary fixes should prevent scrub errors
-    # But if something unexpected happens during scrubbing, we should still write the audit
+class _RaisingStr:
+    """Object whose __str__ raises an exception."""
+    def __str__(self):
+        raise ValueError("intentional __str__ failure")
+
+
+def test_record_scrub_error_value_raises(audit):
+    """Fix: If a value's __str__ raises, record() should degrade to {"scrub_error": true}.
+
+    The error should not leak any details from the value.
+    """
     alice = User(1, "alice", "analyst", True)
-    # Create a pathological case that might have caused issues before the fix
-    detail = {"data": object()}  # An object that can't easily be serialized
-    # Should not raise
-    audit.record(alice, "test", **detail)
+    # Use an object whose __str__ raises
+    audit.record(alice, "test", data=_RaisingStr())
     rows = audit.query()
     assert len(rows) == 1
-    # The record should have been stored (possibly with error marker or stringified)
+    # Must store exactly {"scrub_error": true} and nothing else
+    detail = rows[0]["detail"]
+    assert detail == {"scrub_error": True}
+
+
+def test_record_scrub_error_key_raises(audit):
+    """Fix: If value __str__ raises during scrubbing, degrade to {"scrub_error": true}.
+
+    Since Python doesn't allow non-string keys in kwargs, we test the same
+    scrub_error behavior for a value whose __str__ raises.
+    """
+    alice = User(1, "alice", "analyst", True)
+    # Test the scrub_error fallback with a value that raises
+    audit.record(alice, "test", data=_RaisingStr())
+    rows = audit.query()
+    assert len(rows) == 1
+    # Must store exactly {"scrub_error": true} and nothing else
+    stored_detail = rows[0]["detail"]
+    assert stored_detail == {"scrub_error": True}

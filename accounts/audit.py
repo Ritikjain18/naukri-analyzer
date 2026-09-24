@@ -1,10 +1,13 @@
 import csv
 import io
 import json
+import logging
 import re
 
 from accounts.db import AppDB, iso
 from accounts.redact import scrub_value
+
+logger = logging.getLogger(__name__)
 
 SECRET_KEY = re.compile(r"pass|secret|token|api_?key|hash", re.I)
 MAX_VALUE = 2000
@@ -37,7 +40,8 @@ class AuditLog:
     def record(self, user, action: str, session_id: str | None = None, **detail) -> int:
         user_id, username = _identity(user)
 
-        # Wrap scrubbing in try-catch to ensure record always succeeds
+        # Wrap scrubbing and serialization in try-catch to ensure record always succeeds
+        # Keep DB insert outside the try to not mask database errors
         try:
             scrubbed = _scrub(detail)
             detail_json = json.dumps(scrubbed, default=str)
@@ -46,7 +50,8 @@ class AuditLog:
             if len(detail_json) > MAX_DETAIL_JSON:
                 detail_json = json.dumps({"truncated": True, "size": len(detail_json)})
         except Exception:
-            # If scrubbing or JSON encoding fails for any reason, degrade gracefully
+            # If scrubbing or JSON encoding fails, degrade gracefully and log
+            logger.debug("Audit detail scrubbing failed", exc_info=True)
             detail_json = json.dumps({"scrub_error": True})
 
         return self.db.insert(

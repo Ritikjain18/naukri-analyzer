@@ -13,9 +13,11 @@ QUOTED_CREDENTIAL_PATTERN = re.compile(
     r'(?i)(password|passwd|pwd|token|secret|api[_-]?key)(\s*)([=:])(\s*)'
     r'([\"\'])([^\'\"]*?)\5'  # Quoted values: 'value' or "value"
 )
+# Unquoted: NOT [REDACTED] exactly
+# Skip matching only if value is EXACTLY [REDACTED] followed by delimiter/space/end
 UNQUOTED_CREDENTIAL_PATTERN = re.compile(
     r'(?i)(password|passwd|pwd|token|secret|api[_-]?key)(\s*)([=:])(\s*)'
-    r'(?!\[REDACTED\])(\S+)'  # Unquoted, but NOT [REDACTED]
+    r'(?!\[REDACTED\](?=[\s,;"\'\}\]$]|$))(\S+)'
 )
 # JSON-style credentials: "password":"value" or "password": 'value'
 JSON_CREDENTIAL_PATTERN = re.compile(
@@ -23,14 +25,12 @@ JSON_CREDENTIAL_PATTERN = re.compile(
     r'([\"\'])([^\'\"]*?)\3'
 )
 
-BEARER_PATTERN = re.compile(r'(Bearer|bearer)\s+[A-Za-z0-9._-]{16,}')
-BASIC_PATTERN = re.compile(r'(Basic)\s+[A-Za-z0-9+/=]{12,}')
+# Bearer/Basic auth patterns - case-insensitive but preserve original case
+BEARER_PATTERN = re.compile(r'(Bearer|bearer|BEARER)\s+[A-Za-z0-9._-]{16,}')
+BASIC_PATTERN = re.compile(r'(Basic|basic|BASIC)\s+[A-Za-z0-9+/=]{12,}')
 
 # Secret key pattern for dicts
 SECRET_KEY = re.compile(r"pass|secret|token|api_?key|hash", re.I)
-
-# Track visited objects to prevent infinite loops on cyclic references
-_VISITED = set()
 
 
 def redact_text(text: str) -> str:
