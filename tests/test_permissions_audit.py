@@ -5,9 +5,9 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from accounts.audit import AuditLog
-from accounts.auth import User
+from accounts.auth import User, ROLES as AUTH_ROLES
 from accounts.db import AppDB
-from accounts.permissions import PERMISSIONS, PermissionDenied, can, require
+from accounts.permissions import PERMISSIONS, PermissionDenied, can, require, ROLES
 
 ALL = {"upload", "ask", "export", "view_history", "view_comparative",
        "manage_users", "manage_prompts", "manage_config", "view_audit"}
@@ -96,3 +96,47 @@ def test_to_csv_round_trip(audit):
     audit.record(User(1, "alice", "analyst", True), "upload", file="a.csv", rows=3)
     rows = list(csv.DictReader(io.StringIO(audit.to_csv(audit.query()))))
     assert rows[0]["username"] == "alice" and rows[0]["action"] == "upload" and '"rows": 3' in rows[0]["detail"]
+
+
+def test_csv_formula_injection_guard(audit):
+    alice = User(1, "alice", "analyst", True)
+    audit.record(alice, "test", note="normal")
+    audit.record(alice, "=SUM(A1)", note="formula")
+    audit.record(alice, "+alert(1)", note="plus")
+    audit.record(alice, "-cmd", note="minus")
+    audit.record(alice, "@domain", note="at")
+    audit.record(alice, "\ttest", note="tab")
+    csv_out = audit.to_csv(audit.query())
+    lines = csv_out.split('\n')[1:]  # Skip header
+    # Check that formula-starting actions get prefixed with '
+    assert any("'=SUM" in line for line in lines)
+    assert any("'+alert" in line for line in lines)
+    assert any("'-cmd" in line for line in lines)
+    assert any("'@domain" in line for line in lines)
+    # Normal values should not have formula injection prefix in action column
+    # The "test" action should appear without prefix
+    assert any(",test," in line and "normal" in line for line in lines)
+
+
+def test_can_non_string_role():
+    assert not can(None, "ask")
+    assert not can(["admin"], "ask")
+    assert not can({"role": "admin"}, "ask")
+    assert not can(42, "ask")
+    assert can("admin", "ask") is True
+
+
+def test_require_non_string_role():
+    with pytest.raises(PermissionDenied):
+        require(None, "ask")
+    with pytest.raises(PermissionDenied):
+        require(["admin"], "ask")
+    with pytest.raises(PermissionDenied):
+        require({"role": "admin"}, "ask")
+    with pytest.raises(PermissionDenied):
+        require(42, "ask")
+
+
+def test_roles_export_matches_auth():
+    assert ROLES == AUTH_ROLES
+    assert set(PERMISSIONS.keys()) == set(ROLES)

@@ -4,21 +4,21 @@ import json
 import re
 
 from accounts.db import AppDB, iso
+from accounts.redact import scrub_value
 
 SECRET_KEY = re.compile(r"pass|secret|token|api_?key|hash", re.I)
 MAX_VALUE = 2000
+MAX_DETAIL_JSON = 20000
 
 
 def _scrub(detail: dict) -> dict:
+    """Scrub detail dict by dropping secret-key entries and redacting/truncating values."""
     clean = {}
     for key, value in detail.items():
         if SECRET_KEY.search(key):
             continue
-        if isinstance(value, str):
-            value = value[:MAX_VALUE]
-        elif not isinstance(value, (int, float, bool, list, dict, type(None))):
-            value = str(value)[:MAX_VALUE]
-        clean[key] = value
+        # Use scrub_value for deep redaction and truncation
+        clean[key] = scrub_value(value, max_str=MAX_VALUE)
     return clean
 
 
@@ -36,10 +36,16 @@ class AuditLog:
 
     def record(self, user, action: str, session_id: str | None = None, **detail) -> int:
         user_id, username = _identity(user)
+        scrubbed = _scrub(detail)
+        detail_json = json.dumps(scrubbed, default=str)
+
+        # If detail_json exceeds max size, store truncated marker instead
+        if len(detail_json) > MAX_DETAIL_JSON:
+            detail_json = json.dumps({"truncated": True, "size": len(detail_json)})
+
         return self.db.insert(
             "INSERT INTO audit_log (ts_utc, user_id, username, action, detail_json, session_id) VALUES (?,?,?,?,?,?)",
-            (iso(self.db.now()), user_id, username, action,
-             json.dumps(_scrub(detail), default=str), session_id),
+            (iso(self.db.now()), user_id, username, action, detail_json, session_id),
         )
 
     def query(self, user=None, action=None, since=None, until=None, limit: int = 500) -> list[dict]:
@@ -61,11 +67,24 @@ class AuditLog:
         return [{**r, "detail": json.loads(r["detail_json"])} for r in self.db.query(sql, tuple(params))]
 
     @staticmethod
+    def _escape_formula_injection(value: str) -> str:
+        """Prefix cells that start with =, +, -, @, tab or CR with single quote."""
+        if not value:
+            return value
+        if value[0] in ('=', '+', '-', '@', '\t', '\r'):
+            return "'" + value
+        return value
+
+    @staticmethod
     def to_csv(rows: list[dict]) -> str:
         buf = io.StringIO()
         writer = csv.writer(buf)
         writer.writerow(["ts_utc", "username", "action", "session_id", "detail"])
         for r in rows:
-            writer.writerow([r["ts_utc"], r["username"] or "", r["action"], r["session_id"] or "",
-                             json.dumps(r["detail"], ensure_ascii=False)])
+            ts = AuditLog._escape_formula_injection(r["ts_utc"])
+            username = AuditLog._escape_formula_injection(r["username"] or "")
+            action = AuditLog._escape_formula_injection(r["action"])
+            session_id = AuditLog._escape_formula_injection(r["session_id"] or "")
+            detail = json.dumps(r["detail"], ensure_ascii=False)
+            writer.writerow([ts, username, action, session_id, detail])
         return buf.getvalue()
