@@ -66,3 +66,12 @@ def test_reserved_word_table_names_do_not_break_ingest(store):
     out = make_ingest_node(store, llm)({})
     assert out["data_summary"] == "s"
     assert "-- order" in llm.prompts[0] and "-- group" in llm.prompts[0]
+
+
+def test_append_returns_full_table_in_df(store):
+    node = make_ingest_node(store, FakeLLM(["a", "b"]))
+    first = node({"upload": {"name": "jobs.csv", "bytes": CSV}, "prompts": []})
+    assert len(first["df"]) == 2
+    second = node({"upload": {"name": "jobs.csv", "bytes": CSV}, "prompts": []})
+    assert second["ingest_action"] == "appended"
+    assert len(second["df"]) == 4

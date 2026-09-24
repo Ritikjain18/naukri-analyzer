@@ -12,12 +12,19 @@ class RetrievalError(RuntimeError):
     pass
 
 
+def _record(trace: list | None, node: str, prompt: str, output: str) -> None:
+    if trace is not None:
+        trace.append({"node": node, "prompt": f"{prompt}\n\n--- model output ---\n{output}"})
+
+
 def make_sql_tool(store, llm, row_cap: int = ROW_CAP):
-    def run(question: str, schema: str) -> pd.DataFrame:
+    def run(question: str, schema: str, history: str = "(none)", trace: list | None = None) -> pd.DataFrame:
         error_note = ""
         for _ in range(2):
-            prompt = render("sql", schema=schema, limit=row_cap, question=question, error_note=error_note)
+            prompt = render("sql", schema=schema, limit=row_cap, history=history, question=question,
+                            error_note=error_note)
             sql = extract_sql(llm.invoke(prompt).content)
+            _record(trace, "retrieve-sql", prompt, sql)
             if not re.match(r"\s*(select|with)\b", sql, re.I):
                 error_note = f"Your previous output was not a SELECT statement: {sql!r}. Return only one SELECT."
                 continue
@@ -81,13 +88,14 @@ def _to_frame(result) -> pd.DataFrame:
 
 
 def make_pandas_tool(llm, row_cap: int = ROW_CAP):
-    def run(question: str, df: pd.DataFrame) -> pd.DataFrame:
+    def run(question: str, df: pd.DataFrame, history: str = "(none)", trace: list | None = None) -> pd.DataFrame:
         error_note = ""
         for _ in range(2):
             sample = df.head(3).to_csv(index=False)
             prompt = render("pandas", columns=", ".join(f"{c} ({df[c].dtype})" for c in df.columns),
-                            sample=sample, question=question, error_note=error_note)
+                            sample=sample, history=history, question=question, error_note=error_note)
             expr = extract_code(llm.invoke(prompt).content)
+            _record(trace, "retrieve-pandas", prompt, expr)
             rejected = check_expression(expr)
             if rejected:
                 error_note = (f"Your previous expression used a forbidden construct ({rejected}): {expr!r}. "

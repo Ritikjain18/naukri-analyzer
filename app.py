@@ -68,12 +68,16 @@ with st.sidebar:
             with st.spinner("Ingesting..."):
                 update = ingest_node({**shared, "upload": {"name": up.name, "bytes": up.getvalue()}, "prompts": []})
             shared.update({k: update[k] for k in ("df", "table_name", "schema", "data_summary")})
+            st.session_state["ingest_prompts"] = update["prompts"]
             st.success(f"{update['ingest_action'].title()} table `{update['table_name']}` ({len(update['df'])} rows)")
         except Exception as exc:
             st.error(friendly_error(exc))
     if shared.get("data_summary"):
         with st.expander("Data summary"):
             st.write(shared["data_summary"])
+            for p in st.session_state.get("ingest_prompts", []):
+                st.caption(p["node"])
+                st.code(p["prompt"], language="text")
 
 for m in messages:
     with st.chat_message(m["role"]):

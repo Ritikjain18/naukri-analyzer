@@ -9,8 +9,8 @@ VARS = {
     "data_understanding": dict(skills="s", schema="sc", sample="sm"),
     "query": dict(summary="a", skill="b", history="c", slice="d", question="e", error_note=""),
     "visualization": dict(insight="i", columns="c", error_note=""),
-    "sql": dict(schema="s", limit=200, question="q", error_note=""),
-    "pandas": dict(columns="c", sample="s", question="q", error_note=""),
+    "sql": dict(schema="s", limit=200, history="h", question="q", error_note=""),
+    "pandas": dict(columns="c", sample="s", history="h", question="q", error_note=""),
 }
 
 

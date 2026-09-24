@@ -7,5 +7,8 @@ $sample
 
 Return ONLY one expression (no assignment, no imports, no print) that evaluates to a DataFrame. For summaries use groupby/agg followed by reset_index().
 
+Recent conversation:
+$history
+
 Question: $question
 $error_note

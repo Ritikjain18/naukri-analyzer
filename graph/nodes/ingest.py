@@ -30,8 +30,11 @@ def make_ingest_node(store, llm):
             df = parse_upload(upload["name"], upload["bytes"])
             df.columns = [sanitize_name(c) for c in df.columns]
             table = sanitize_name(Path(upload["name"]).stem)
-            update["ingest_action"] = store.append_or_create(df, table)
+            action = store.append_or_create(df, table)
+            update["ingest_action"] = action
             update["table_name"] = table
+            if action == "appended":
+                df = store.run_sql(f"SELECT * FROM {quote_ident(table)}")
             update["df"] = df
 
         schema = store.schema_text()

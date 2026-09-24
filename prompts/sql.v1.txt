@@ -5,5 +5,8 @@ $schema
 
 Rules: exactly one SELECT statement; use only the tables and columns listed; aggregate (GROUP BY) when the question asks for rates, comparisons or rankings; include LIMIT $limit at most. Return ONLY the SQL.
 
+Recent conversation:
+$history
+
 Question: $question
 $error_note

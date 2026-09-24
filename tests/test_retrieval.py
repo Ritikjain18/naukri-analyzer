@@ -58,11 +58,11 @@ def test_pandas_tool_blocks_dangerous_code():
 def test_retrieve_node_routes_and_caps():
     calls = []
 
-    def sql_tool(q, schema):
+    def sql_tool(q, schema, history="(none)", trace=None):
         calls.append("sql")
         return pd.DataFrame({"a": range(300)})
 
-    def pandas_tool(q, df):
+    def pandas_tool(q, df, history="(none)", trace=None):
         calls.append("pandas")
         return df
 
@@ -74,6 +74,28 @@ def test_retrieve_node_routes_and_caps():
     out = node({"question": "avg salary", "schema": "s", "df": df})
     assert out["query_type"] == "pandas"
     assert calls == ["sql", "pandas"]
+
+
+def test_history_reaches_tool_prompts_and_trace_is_recorded(seeded):
+    llm = FakeLLM(["Sure: SELECT COUNT(*) AS n FROM jobs;"])
+    node = make_retrieve_node(make_sql_tool(seeded, llm), make_pandas_tool(llm))
+    state = {"question": "and now?", "schema": seeded.schema_text(), "prompts": [{"node": "old", "prompt": "p"}],
+             "chat_history": [{"question": "earlier q", "finding": "earlier a"}]}
+    out = node(state)
+    assert "Q: earlier q" in llm.prompts[0]
+    nodes = [p["node"] for p in out["prompts"]]
+    assert nodes == ["old", "retrieve-sql"]
+    entry = out["prompts"][1]["prompt"]
+    assert "--- model output ---" in entry and entry.endswith("SELECT COUNT(*) AS n FROM jobs")
+
+
+def test_pandas_trace_one_entry_per_attempt():
+    df = pd.DataFrame({"salary": [1, 2]})
+    llm = FakeLLM(["df.query('x')", "df"])
+    trace = []
+    make_pandas_tool(llm)("avg salary", df, history="Q: a\nA: b", trace=trace)
+    assert [t["node"] for t in trace] == ["retrieve-pandas", "retrieve-pandas"]
+    assert "Q: a" in trace[0]["prompt"] and trace[1]["prompt"].endswith("df")
 
 
 @pytest.mark.parametrize("expr", [

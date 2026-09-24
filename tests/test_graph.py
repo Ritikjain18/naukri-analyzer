@@ -9,11 +9,13 @@ INSIGHT = json.dumps({"finding": "Eng leads.", "evidence": ["20% vs 10%"], "reco
 CHART = json.dumps({"type": "bar", "x": "category", "y": "conversion", "title": "Conversion"})
 
 
-def sql_tool(question, schema):
+def sql_tool(question, schema, history="(none)", trace=None):
+    if trace is not None:
+        trace.append({"node": "retrieve-sql", "prompt": "p"})
     return pd.DataFrame({"category": ["Eng", "Sales"], "conversion": [0.2, 0.1]})
 
 
-def no_pandas(question, df):
+def no_pandas(question, df, history="(none)", trace=None):
     raise AssertionError("pandas tool should not be used")
 
 
@@ -35,7 +37,7 @@ def test_first_run_ingests_then_answers(store):
     assert result["data_summary"] == "DB summary"
     assert result["insight"].finding == "Eng leads."
     assert result["chart_config"].type == "bar"
-    assert [p["node"] for p in result["prompts"]] == ["ingest", "analyst", "visualization"]
+    assert [p["node"] for p in result["prompts"]] == ["ingest", "retrieve-sql", "analyst", "visualization"]
     assert len(result["chat_history"]) == 1
 
 
@@ -45,7 +47,7 @@ def test_follow_up_skips_ingest_and_uses_history(store):
     graph = make(store, fast, smart)
     first = graph.invoke({"question": "q1", "prompts": [], "errors": []})
     second = graph.invoke({**first, "question": "q2", "prompts": [], "errors": []})
-    assert [p["node"] for p in second["prompts"]] == ["analyst", "visualization"]
+    assert [p["node"] for p in second["prompts"]] == ["retrieve-sql", "analyst", "visualization"]
     assert len(second["chat_history"]) == 2
     assert "Q: q1" in smart.prompts[1]
     assert len(second["insight_memory"]) == 2
@@ -54,7 +56,7 @@ def test_follow_up_skips_ingest_and_uses_history(store):
 def test_empty_slice_skips_llm_calls(store):
     fast = FakeLLM(["DB summary"])
     smart = FakeLLM([])
-    graph = make(store, fast, smart, sql=lambda q, s: pd.DataFrame({"a": []}))
+    graph = make(store, fast, smart, sql=lambda q, s, history="(none)", trace=None: pd.DataFrame({"a": []}))
     result = graph.invoke({"question": "q", "prompts": [], "errors": []})
     assert "No data matched" in result["insight"].finding
     assert result["chart_config"] is None
