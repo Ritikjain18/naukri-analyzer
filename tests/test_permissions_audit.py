@@ -215,17 +215,16 @@ def test_record_scrub_error_value_raises(audit):
     assert detail == {"scrub_error": True}
 
 
-def test_record_scrub_error_key_raises(audit):
-    """Fix: If value __str__ raises during scrubbing, degrade to {"scrub_error": true}.
+def test_scrub_value_raising_key_raises():
+    from accounts.redact import scrub_value
+    with pytest.raises(ValueError):
+        scrub_value({_RaisingStr(): 1})
 
-    Since Python doesn't allow non-string keys in kwargs, we test the same
-    scrub_error behavior for a value whose __str__ raises.
-    """
+
+def test_record_scrub_error_key_raises(audit):
+    """A dict KEY whose __str__ raises must degrade record() to exactly {"scrub_error": true}."""
     alice = User(1, "alice", "analyst", True)
-    # Test the scrub_error fallback with a value that raises
-    audit.record(alice, "test", data=_RaisingStr())
+    audit.record(alice, "test", detail={"x": {_RaisingStr(): 1}})
     rows = audit.query()
     assert len(rows) == 1
-    # Must store exactly {"scrub_error": true} and nothing else
-    stored_detail = rows[0]["detail"]
-    assert stored_detail == {"scrub_error": True}
+    assert rows[0]["detail"] == {"scrub_error": True}

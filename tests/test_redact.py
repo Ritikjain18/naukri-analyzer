@@ -294,31 +294,87 @@ def test_redact_text_fake_marker_bypass():
     assert result3.count(REDACTED) == 1  # Only one, not re-redacted
 
 
-def test_redact_text_quoted_with_embedded_quotes():
-    """Fix: Quoted values containing the other quote type must work.
-
-    password="it's fine" and password='say "hi" there' must redact the whole value.
-    """
-    text = 'password="it\'s fine"'
-    result = redact_text(text)
-    assert "it's fine" not in result
-    assert REDACTED in result
-
-    text2 = """password='say "hi" there'"""
-    result2 = redact_text(text2)
-    assert 'say "hi" there' not in result2
-    assert REDACTED in result2
+def _assert_idempotent(*texts):
+    for text in texts:
+        once = redact_text(text)
+        assert redact_text(once) == once, repr(text)
 
 
-def test_redact_text_escaped_quotes():
-    """Fix: Escaped quotes within values must be handled.
+# Quoting rule (round 4): a quoted credential value is replaced WHOLE by the marker and
+# re-wrapped in its original opening quote style: password="..." -> password="[REDACTED]".
+# Backslash escapes stay inside the value; the value ends at the first unescaped matching
+# quote that is followed by whitespace, one of , ; } ) ] or end of text; otherwise it runs
+# to the end of the line (unterminated values are closed with the same quote).
 
-    password="pa\"ss" should redact the full escaped value.
-    """
-    text = r'password="pa\"ss"'
-    result = redact_text(text)
-    # The whole value including escapes should be redacted
-    assert "pa" not in result or REDACTED in result
+
+def test_redact_text_quoted_value_contains_other_quote_type():
+    assert redact_text('password="it\'s fine here" ok') == 'password="[REDACTED]" ok'
+    assert redact_text("""password='say "hi" there' ok""") == "password='[REDACTED]' ok"
+
+
+def test_redact_text_quoted_value_backslash_escaped_quote():
+    assert redact_text(r'password="pa\"ss word" ok') == 'password="[REDACTED]" ok'
+    assert redact_text(r"password='pa\'ss word' ok") == "password='[REDACTED]' ok"
+
+
+def test_redact_text_unterminated_quoted_value_redacts_to_end_of_line():
+    text = "password: 'unterminated hunter 2\nnext line stays"
+    assert redact_text(text) == "password: '[REDACTED]'\nnext line stays"
+    text2 = 'password="unterminated hunter 2\nnext line stays'
+    assert redact_text(text2) == 'password="[REDACTED]"\nnext line stays'
+    assert redact_text('password="unterminated hunter 2') == 'password="[REDACTED]"'
+
+
+def test_redact_text_json_values_with_quotes():
+    assert redact_text('{"password":"it\'s"}') == '{"password":"[REDACTED]"}'
+    assert redact_text(r'{"token": "a\"b c"}') == '{"token": "[REDACTED]"}'
+    assert redact_text('{"password": "x y", "ok": "yes"}') == '{"password": "[REDACTED]", "ok": "yes"}'
+
+
+def test_redact_text_quote_closes_only_before_delimiter():
+    """A quote followed by a non-delimiter (e.g. `"b`) is part of the value, not its end."""
+    assert redact_text('password = "a"b c"') == 'password = "[REDACTED]"'
+    assert redact_text('password = "a"b c') == 'password = "[REDACTED]"'
+    # A quote followed by whitespace does close the value.
+    assert redact_text('password="a" b c') == 'password="[REDACTED]" b c'
+
+
+def test_redact_text_bare_value_redacts_first_word_only():
+    """By design an unquoted value ends at the first whitespace."""
+    assert redact_text("password: hunter 2") == "password: [REDACTED] 2"
+
+
+def test_redact_text_quoted_cases_idempotent():
+    _assert_idempotent(
+        'password="it\'s fine here"', """password='say "hi" there'""", r'password="pa\"ss word"',
+        "password: 'unterminated hunter 2\nnext", 'password="unterminated hunter 2',
+        '{"password":"it\'s"}', r'{"token": "a\"b c"}', 'password = "a"b c"', "password: hunter 2",
+        'password="abc\\', 'password="abc\\\nnext', "BaSiC dXNlcjpwYXNzd29yZA==",
+    )
+
+
+@pytest.mark.parametrize("payload", [
+    'password="' + '\\"' * 50000,
+    'password="' + '\\' * 50000,
+    'password="' + '\'"' * 50000,
+    'password="' + 'x' * 100000,
+    "password='" + 'x' * 100000,
+    '{"token": "' + 'a"b' * 33000,
+    'password=' * 12000,
+    'Bearer ' * 14000,
+])
+def test_redact_text_adversarial_inputs_fast(payload):
+    import time
+    start = time.perf_counter()
+    once = redact_text(payload)
+    assert time.perf_counter() - start < 0.1
+    assert redact_text(once) == once
+
+
+def test_redact_text_prose_unchanged():
+    for text in ["What is the password reset rate?", "tokenization rate", "The token was distributed",
+                 "my password is hunter2"]:
+        assert redact_text(text) == text
 
 
 def test_redact_text_bearer_case_insensitive():
@@ -356,3 +412,10 @@ def test_redact_text_basic_auth_case_insensitive():
     result2 = redact_text(text2)
     assert "ABC123DEF456GHI789+=" not in result2
     assert "basic" in result2
+
+
+def test_redact_text_auth_scheme_any_case():
+    assert redact_text("BaSiC dXNlcjpwYXNzd29yZA==") == "BaSiC [REDACTED]"
+    assert redact_text("bEaReR abcdefghijklmnopqrstuvwxyz") == "bEaReR [REDACTED]"
+    # Bearer keeps its 16-character minimum.
+    assert redact_text("bEaReR abcdefghijklmno") == "bEaReR abcdefghijklmno"
