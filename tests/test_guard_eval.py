@@ -26,3 +26,8 @@ def test_accepts_hr_questions(schema, q):
 @pytest.mark.parametrize("q", CASES["reject"])
 def test_rejects_off_topic_and_injection(schema, q):
     assert not check_input(q, schema).ok, q
+
+
+@pytest.mark.parametrize("q", CASES["accept_extra"])
+def test_accepts_extra_hr_questions(schema, q):
+    assert check_input(q, schema).ok, q

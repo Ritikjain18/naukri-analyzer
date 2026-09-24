@@ -65,3 +65,11 @@ def test_placeholders_fail(bad):
 def test_small_integers_years_and_question_numbers_are_ignored():
     text = "Top 3 categories in 2025 and the 90 day trend"
     assert untraceable_numbers(text, SLICE, question="Show the 90 day trend for 2025") == []
+
+
+def test_rounding_aware_numbers():
+    df = pd.DataFrame({"category": ["Eng"], "conv": [0.205]})
+    assert untraceable_numbers("Eng converts at 20%", df) == []
+    assert untraceable_numbers("Eng converts at 20.5%", df) == []
+    assert untraceable_numbers("Eng converts at 22%", df) == ["22"]
+    assert untraceable_numbers("Eng converts at 45%", df) == ["45"]

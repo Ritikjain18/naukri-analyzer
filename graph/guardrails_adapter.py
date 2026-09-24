@@ -5,6 +5,7 @@ they are executed as custom Guardrails validators; the returned GuardResult is a
 the pure check produced. Guardrails telemetry (OTLP export to a remote endpoint) is disabled
 before the library is imported so no network calls are made.
 """
+import logging
 import os
 from typing import Callable
 
@@ -23,6 +24,8 @@ try:  # guardrails-ai is optional; the pure checks are the source of truth
 except Exception:
     GUARDRAILS_AVAILABLE = False
 
+logger = logging.getLogger(__name__)
+HARNESS_RUNS = 0  # number of times the Guardrails validator actually executed
 _VALIDATORS: dict[str, type] = {}
 
 
@@ -34,6 +37,8 @@ def _validator_class(name: str):
             def _validate(self, value, metadata):
                 result: GuardResult = metadata["check"](*metadata["args"], **metadata["kwargs"])
                 metadata["result"] = result
+                global HARNESS_RUNS
+                HARNESS_RUNS += 1
                 if result.ok:
                     return PassResult()
                 return FailResult(error_message="; ".join(result.reasons))
@@ -49,8 +54,8 @@ def _run_with_guardrails(name: str, check: Callable[..., GuardResult], subject, 
         guard.configure(allow_metrics_collection=False)
         meta = {"check": check, "args": (subject,), "kwargs": kwargs}
         guard.validate(str(subject), metadata=meta)
-    except Exception:
-        pass  # harness failure: the pure result stands
+    except Exception:  # harness failure: the pure result stands
+        logger.debug("Guardrails harness failed for %s; using pure result", name, exc_info=True)
     return pure
 
 

@@ -30,6 +30,10 @@ HR_STEMS = (
     "session", "bounce", "source", "categor", "locat", "convers", "view", "skill", "experien", "educat",
     "interview", "offer", "drop", "rate", "metric", "trend", "compar", "average", "total", "count",
     "month", "week", "salary", "screen", "response", "talent", "profile", "engag",
+    "appl", "vacanc", "opening", "headcount", "attrit", "tenure", "fill", "role", "team", "department",
+    "employer", "compan", "gender", "fresher", "referr", "people", "employee", "staff", "ctc", "notice",
+    "join", "reject", "shortlist", "overview", "dataset", "perform", "city", "cities", "understaff",
+    "lose", "hire", "work", "position", "vacan", "industry", "sector",
 )
 
 
@@ -80,6 +84,10 @@ PLACEHOLDER = re.compile(
 NUMBER = re.compile(r"(?<![\w.])-?\d[\d,]*(?:\.\d+)?")
 
 
+def _decimals(token: str) -> int:
+    return len(token.split(".")[1]) if "." in token else 0
+
+
 def _numbers(text: str) -> list[float]:
     out = []
     for m in NUMBER.finditer(text):
@@ -121,10 +129,16 @@ def untraceable_numbers(text: str, data_slice: pd.DataFrame, question: str = "")
     allowed = set(_numbers(question))
     candidates = _candidate_values(data_slice)
     bad = []
-    for n in _numbers(text):
+    for m in NUMBER.finditer(text):
+        try:
+            n = float(m.group().replace(",", ""))
+        except ValueError:
+            continue
+        decimals = _decimals(m.group().replace(",", ""))
         if n in allowed or (abs(n) <= 10 and n == int(n)) or (1990 <= n <= 2100 and n == int(n)):
             continue
-        if not any(math.isclose(n, c, rel_tol=0.02, abs_tol=0.06) for c in candidates):
+        tol = max(0.06, 0.5 * 10 ** -decimals * 1.01)
+        if not any(abs(n - c) <= tol or math.isclose(n, c, rel_tol=0.02) for c in candidates):
             bad.append(f"{n:g}")
     return bad
 
