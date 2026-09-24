@@ -149,3 +149,28 @@ def test_chart_creation_exception_falls_back_to_table(monkeypatch):
     import export.deck as deck
     monkeypatch.setattr(deck, "_build_chart", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("boom")))
     assert kinds(load([entry()]).slides[0])["table"]
+
+
+def test_deck_survives_xml_forbidden_characters():
+    from io import BytesIO
+
+    from pptx import Presentation
+
+    from export.deck import build_deck
+
+    bad = "a￾b￿c\ud800d\x00e\x0bf"
+    entry = {"question": "q", "approved": True,
+             "insight": {"finding": bad, "evidence": [bad, 5], "recommendation": bad},
+             "slice": [{bad: bad, "n": 1}, {bad: "z", "n": 2}],
+             "chart": {"type": "bar", "x": bad, "y": "n", "title": bad}}
+    table_entry = {**entry, "chart": None}
+    prs = Presentation(BytesIO(build_deck([entry, table_entry])))
+    assert len(prs.slides) == 2
+    assert "abcdef" in prs.slides[0].shapes.title.text
+
+
+def test_entry_label_tolerates_missing_finding():
+    from export.deck import entry_label
+
+    assert entry_label(0, {"insight": {"finding": None}}) == "1. (no finding)"
+    assert entry_label(1, {}) == "2. (no finding)"

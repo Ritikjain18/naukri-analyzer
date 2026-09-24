@@ -1,5 +1,6 @@
 import logging
 import math
+import re
 from io import BytesIO
 
 import pandas as pd
@@ -40,8 +41,14 @@ def fit_body(evidence: list[str], recommendation: str, budget: int = BODY_WORD_B
     return bullets, rec
 
 
+_XML_FORBIDDEN = re.compile("[^\t\n\r\u0020-\ud7ff\ue000-\ufffd\U00010000-\U0010ffff]")
+
+
 def _clean(text) -> str:
-    return "".join(ch for ch in str(text) if ch >= " " or ch in "\n\t")
+    """Return text that is valid in XML 1.0: no control chars, U+FFFE/U+FFFF or lone surrogates."""
+    text = "" if text is None else str(text)
+    text = text.encode("utf-8", "ignore").decode("utf-8")  # drops lone surrogates
+    return _XML_FORBIDDEN.sub("", text).replace("\r", "")
 
 
 def _cell_text(value) -> str:
@@ -104,6 +111,12 @@ def _add_chart(slide, chart, df: pd.DataFrame) -> bool:
         return False
 
 
+def _clean_records(records) -> list[dict]:
+    """Sanitize keys and string cells up front: pandas/pyarrow cannot even hold a lone surrogate."""
+    return [{_clean(k): (_clean(v) if isinstance(v, str) else v) for k, v in row.items()}
+            for row in (records or []) if isinstance(row, dict)]
+
+
 def build_deck(entries: list[dict]) -> bytes:
     prs = Presentation()
     prs.slide_width, prs.slide_height = Inches(13.333), Inches(7.5)
@@ -111,9 +124,11 @@ def build_deck(entries: list[dict]) -> bytes:
         slide = prs.slides.add_slide(prs.slide_layouts[5])  # Title Only
         ins = e["insight"]
         title = slide.shapes.title
-        title.text = _clean(truncate_title(ins["finding"]))
+        finding = _clean(ins.get("finding"))
+        title.text = truncate_title(finding)
         title.left, title.top, title.width, title.height = Inches(0.6), Inches(0.3), Inches(12.1), Inches(1.25)
-        bullets, rec = fit_body(ins["evidence"], ins["recommendation"])
+        evidence = [_clean(x) for x in (ins.get("evidence") or [])]
+        bullets, rec = fit_body(evidence, _clean(ins.get("recommendation")))
         box = slide.shapes.add_textbox(Inches(0.6), Inches(1.7), Inches(5.7), Inches(5))
         frame = box.text_frame
         frame.word_wrap = True
@@ -125,10 +140,13 @@ def build_deck(entries: list[dict]) -> bytes:
         p.text = _clean(f"Recommendation: {rec}")
         p.font.size = Pt(18)
         p.font.bold = True
-        df = pd.DataFrame(e.get("slice") or [])
+        df = pd.DataFrame(_clean_records(e.get("slice")))
         if df.empty:
             continue
-        if not (e.get("chart") and _add_chart(slide, e["chart"], df)):
+        chart = e.get("chart")
+        if isinstance(chart, dict):
+            chart = {**chart, **{k: _clean(chart[k]) for k in ("x", "y") if isinstance(chart.get(k), str)}}
+        if not (chart and _add_chart(slide, chart, df)):
             _add_table(slide, df)
     buf = BytesIO()
     prs.save(buf)
@@ -136,7 +154,8 @@ def build_deck(entries: list[dict]) -> bytes:
 
 
 def entry_label(i: int, entry: dict) -> str:
-    return f"{i + 1}. {entry['insight']['finding'][:60]}"
+    finding = ((entry.get("insight") or {}).get("finding") or "(no finding)")
+    return f"{i + 1}. {str(finding)[:60]}"
 
 
 def select_entries(memory: list[dict], labels: list[str]) -> list[dict]:

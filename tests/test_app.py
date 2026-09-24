@@ -162,3 +162,19 @@ def test_entry_selection_and_deck_round_trip():
     assert [e["question"] for e in chosen] == ["q2"]
     prs = Presentation(BytesIO(build_deck(select_entries(memory, labels))))
     assert len(prs.slides) == 2
+
+
+def test_deck_failure_shows_warning_and_page_still_renders(monkeypatch, tmp_path):
+    import export.deck as deck
+
+    def boom(entries):
+        raise ValueError("bad deck")
+
+    monkeypatch.setattr(deck, "build_deck", boom)
+    try:
+        at, _ = run_app_with_stub(monkeypatch, tmp_path)
+        assert not at.exception
+        assert any("Could not build the slide deck" in w.value for w in at.sidebar.warning)
+        assert len(at.chat_input) == 1
+    finally:
+        st.cache_resource.clear()

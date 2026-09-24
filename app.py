@@ -143,8 +143,13 @@ with st.sidebar:
         picked = st.multiselect("Insights to export", labels, default=approved or labels)
         chosen = select_entries(memory, picked)
         if chosen:
-            st.download_button("Export slide deck", data=build_deck(chosen), file_name="naukri_insights.pptx",
-                               mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
+            try:
+                deck_bytes = build_deck(chosen)
+            except Exception as exc:
+                st.warning("Could not build the slide deck: " + friendly_error(exc))
+            else:
+                st.download_button("Export slide deck", data=deck_bytes, file_name="naukri_insights.pptx",
+                                   mime="application/vnd.openxmlformats-officedocument.presentationml.presentation")
 
 for i, m in enumerate(messages):
     with st.chat_message(m["role"]):
