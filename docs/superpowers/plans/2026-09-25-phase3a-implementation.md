@@ -2116,6 +2116,7 @@ def test_export_audit_callback_records_count(tmp_path):
     audit_export(ctx, 2)
     row = services.audit.query(action="export")[0]
     assert row["username"] == "alice" and row["detail"]["insights"] == 2 and row["session_id"] == "s1"
+```
 
 - [ ] **Step 2: Run to verify failure** — `.venv/bin/pytest tests/test_trace.py tests/test_app_pages.py -v` — Expected: FAIL.
 
