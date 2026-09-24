@@ -16,7 +16,7 @@ def test_get_api_key_present(monkeypatch):
 
 
 def test_constants():
-    assert config.MODEL_FAST == "llama-3.1-8b-instant"
-    assert config.MODEL_SMART == "llama-3.3-70b-versatile"
+    assert config.MODEL_FAST == "openai/gpt-oss-20b"
+    assert config.MODEL_SMART == "openai/gpt-oss-120b"
     assert config.ROW_CAP == 200
     assert config.HISTORY_TURNS == 6

@@ -2,7 +2,7 @@ import re
 
 from langchain_groq import ChatGroq
 
-from config import OUTPUT_RESERVE, MissingKeyError, get_api_key
+from config import OUTPUT_RESERVE, REASONING_EFFORT, MissingKeyError, get_api_key
 from graph.budget import count_tokens
 
 
@@ -13,10 +13,13 @@ def get_llm(model: str, temperature: float = 0.0) -> ChatGroq:
         api_key=get_api_key(),
         timeout=60,
         max_retries=1,
+        reasoning_effort=REASONING_EFFORT,
     )
 
 
 TOO_LARGE_MSG = "The data slice is too large for the model. Try a narrower question."
+MODEL_NOT_FOUND_MSG = ("The configured Groq model isn't available for this account. "
+                       "Check MODEL_SMART / MODEL_FAST in config.py.")
 DAILY_MSG = "Groq daily token limit reached for today. Try again after 00:00 UTC."
 
 
@@ -36,6 +39,9 @@ def friendly_error(exc: Exception) -> str:
         return DAILY_MSG
     if name in ("RateLimitError", "RateLimitExhausted") or status == 429:
         return "Groq rate limit reached. Wait a minute and try again."
+    if (name == "NotFoundError" or status == 404 or "model_not_found" in low
+            or "does not exist or you do not have access" in low):
+        return MODEL_NOT_FOUND_MSG
     if name == "AuthenticationError" or status == 401:
         return "Groq rejected the API key. Check GROQ_API_KEY in .env."
     if name in ("APITimeoutError", "APIConnectionError"):
