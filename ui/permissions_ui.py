@@ -9,6 +9,6 @@ def guard(ctx, permission: str) -> bool:
         require(ctx.user["role"], permission)
     except PermissionDenied as exc:
         st.error(str(exc))
-        ctx.services.audit.record(ctx.user, f"denied:{permission}", ctx.session_id)
+        ctx.services.audit.record(ctx.user, f"denied:{permission}", session_id=ctx.session_id)
         return False
     return True

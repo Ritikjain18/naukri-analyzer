@@ -37,7 +37,7 @@ class AuditLog:
     def __init__(self, db: AppDB):
         self.db = db
 
-    def record(self, user, action: str, session_id: str | None = None, **detail) -> int:
+    def record(self, user, action: str, /, session_id: str | None = None, **detail) -> int:
         user_id, username = _identity(user)
 
         # Wrap scrubbing and serialization in try-catch to ensure record always succeeds

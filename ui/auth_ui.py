@@ -33,7 +33,7 @@ def revoke_session(services, auth: dict, reason: str) -> None:
             services.memory.end_session(sid, auth["user_id"])
     except Exception as exc:
         log.warning("end_session failed on revoke: %s", type(exc).__name__)
-    services.audit.record(user, "session_revoked", sid, reason=reason)
+    services.audit.record(user, "session_revoked", session_id=sid, reason=reason)
     _reset_state()
     flash("warning", REVOKED_MESSAGE)
 
@@ -65,7 +65,7 @@ def _log_in(services, user) -> None:
     auth = {"user_id": user.id, "username": user.username, "role": user.role}
     st.session_state["auth"] = auth
     begin_session(services, auth, summarise=True)
-    services.audit.record({"id": user.id, "username": user.username}, "login", st.session_state["session_id"])
+    services.audit.record({"id": user.id, "username": user.username}, "login", session_id=st.session_state["session_id"])
     _clear_passwords()
     st.rerun()
 
@@ -117,9 +117,9 @@ def _finish_session(ctx, action: str) -> None:
     except Exception as exc:
         log.warning("end_session failed: %s", type(exc).__name__)
         flash("warning", SUMMARY_WARNING)
-    ctx.services.audit.record(ctx.user, "session_end", ctx.session_id)
+    ctx.services.audit.record(ctx.user, "session_end", session_id=ctx.session_id)
     if action == "logout":
-        ctx.services.audit.record(ctx.user, "logout", ctx.session_id)
+        ctx.services.audit.record(ctx.user, "logout", session_id=ctx.session_id)
 
 
 def _reset_state() -> None:
@@ -149,6 +149,6 @@ def render_account_box(ctx) -> None:
             except AccountError as exc:
                 st.error(str(exc))
             else:
-                ctx.services.audit.record(ctx.user, "password_changed", ctx.session_id)
+                ctx.services.audit.record(ctx.user, "password_changed", session_id=ctx.session_id)
                 _clear_passwords()
                 st.success("Password changed.")

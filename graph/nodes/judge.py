@@ -2,16 +2,14 @@ import config
 from graph.llm import RateLimitExhausted, is_rate_limit
 from graph.parsing import extract_json
 from graph.prompts import render
+from graph.trace import generated_sql
 
 CRITERIA = ("relevance", "specificity", "actionability")
 DEFAULT_CORRECTION = "Improve relevance, specificity and actionability."
 
 
 def _generated_sql(state) -> str:
-    for entry in reversed(state.get("prompts", [])):
-        if entry.get("node") == "retrieve-sql" and "--- model output ---\n" in entry["prompt"]:
-            return entry["prompt"].split("--- model output ---\n", 1)[1]
-    return "(unknown)"
+    return generated_sql(state.get("prompts", [])) or "(unknown)"
 
 
 def _output_under_review(state, stage: str) -> str:
