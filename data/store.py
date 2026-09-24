@@ -2,7 +2,7 @@ import re
 from pathlib import Path
 
 import pandas as pd
-from sqlalchemy import create_engine, event, inspect
+from sqlalchemy import create_engine, inspect
 
 
 def sanitize_name(name: str, prefix: str = "t_") -> str:
@@ -20,15 +20,16 @@ class SchemaMismatchError(ValueError):
 
 class SQLiteStore:
     def __init__(self, path):
-        self.path = Path(path)
+        self.path = Path(path).resolve()
         self.path.parent.mkdir(parents=True, exist_ok=True)
         url = f"sqlite:///{self.path}"
         self._engine = create_engine(url)
-        self._ro_engine = create_engine(url)
-
-        @event.listens_for(self._ro_engine, "connect")
-        def _set_read_only(dbapi_conn, _record):
-            dbapi_conn.execute("PRAGMA query_only = ON")
+        # Touch the DB file via write engine so it exists before creating read-only connection
+        with self._engine.connect():
+            pass
+        # Use read-only URI for truly read-only access
+        ro_url = f"sqlite:///file:{self.path}?mode=ro&uri=true"
+        self._ro_engine = create_engine(ro_url)
 
     def list_tables(self) -> list[str]:
         return sorted(inspect(self._engine).get_table_names())
@@ -47,7 +48,10 @@ class SQLiteStore:
         )
 
     def replace_table(self, df: pd.DataFrame, table: str) -> None:
-        df.to_sql(sanitize_name(table), self._engine, if_exists="replace", index=False)
+        table = sanitize_name(table)
+        df = df.copy()
+        df.columns = [sanitize_name(c) for c in df.columns]
+        df.to_sql(table, self._engine, if_exists="replace", index=False)
 
     def append_or_create(self, df: pd.DataFrame, table: str) -> str:
         table = sanitize_name(table)
@@ -66,5 +70,9 @@ class SQLiteStore:
         return "created"
 
     def run_sql(self, query: str) -> pd.DataFrame:
+        # Validate that only SELECT/WITH queries are allowed
+        stripped = query.lstrip().upper()
+        if not (stripped.startswith("SELECT") or stripped.startswith("WITH")):
+            raise ValueError("Only SELECT queries are allowed")
         with self._ro_engine.connect() as conn:
             return pd.read_sql_query(query, conn)
