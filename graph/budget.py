@@ -40,6 +40,15 @@ def request_budget(model: str) -> int:
     return int(effective_limit(model) * RATE_HEADROOM)
 
 
+SLICE_FLOOR = 200
+
+
+def slice_budget(model: str, overhead_tokens: int, used_last_minute: int) -> int:
+    """Tokens the data slice may use so the call is still admitted given this minute's actual usage."""
+    remaining = request_budget(model) - used_last_minute
+    return max(SLICE_FLOOR, remaining - OUTPUT_RESERVE - overhead_tokens)
+
+
 def available_tokens(model: str, system: str, history: str, question: str) -> int:
     used = count_tokens(system) + count_tokens(history) + count_tokens(question)
     return max(0, effective_limit(model) - OUTPUT_RESERVE - used)

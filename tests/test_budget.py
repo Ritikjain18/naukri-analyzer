@@ -53,3 +53,27 @@ def test_real_tiktoken_counts_tokens():
 
     budget.use_estimator(None)  # network on first use: the BPE file is downloaded
     assert budget.count_tokens("How many job applications did each category get?") > 5
+
+
+def test_slice_budget_fresh_minute():
+    from config import MODEL_SMART, OUTPUT_RESERVE
+    from graph.budget import request_budget, slice_budget
+    assert slice_budget(MODEL_SMART, 1000, 0) == request_budget(MODEL_SMART) - OUTPUT_RESERVE - 1000
+
+
+def test_slice_budget_partially_used_minute():
+    from config import MODEL_SMART, OUTPUT_RESERVE
+    from graph.budget import request_budget, slice_budget
+    assert slice_budget(MODEL_SMART, 1000, 3000) == request_budget(MODEL_SMART) - 3000 - OUTPUT_RESERVE - 1000
+
+
+def test_slice_budget_floor_when_used_beyond_budget():
+    from config import MODEL_SMART
+    from graph.budget import request_budget, slice_budget
+    assert slice_budget(MODEL_SMART, 1000, request_budget(MODEL_SMART) + 5000) == 200
+
+
+def test_slice_budget_floor_when_overhead_exceeds_remaining():
+    from config import MODEL_SMART
+    from graph.budget import request_budget, slice_budget
+    assert slice_budget(MODEL_SMART, request_budget(MODEL_SMART), 0) == 200

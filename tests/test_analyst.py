@@ -118,3 +118,58 @@ def test_wide_slice_is_admissible_on_a_fresh_usage_log(tmp_path):
     prompt = fake.prompts[0]
     assert count_tokens(prompt) + config.OUTPUT_RESERVE <= config.RATE_HEADROOM * 12000
     assert "# truncated" in prompt
+
+
+class _RaisingLLM:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def invoke(self, prompt):
+        raise self.exc
+
+
+def _prev_insight():
+    from graph.models import Insight
+    return Insight(finding="Previous finding.", evidence=["Eng 20%"], recommendation="Keep going.")
+
+
+def test_retry_with_rate_limit_keeps_previous_insight():
+    from graph.llm import RateLimitExhausted
+    prev = _prev_insight()
+    for retry in ({"guard_error": "Numbers not found: 45"}, {"judge_correction": "cite rates"}):
+        out = make_analyst_node(_RaisingLLM(RateLimitExhausted("busy")))(
+            base_state(insight=prev, errors=["earlier"], **retry))
+        assert out["insight"] is prev
+        assert out["errors"] == ["earlier", "Retry skipped: rate limit reached, keeping the previous answer."]
+        assert out["prompts"][-1]["node"] == "analyst"
+
+
+def test_first_attempt_rate_limit_propagates():
+    from graph.llm import RateLimitExhausted
+    with pytest.raises(RateLimitExhausted):
+        make_analyst_node(_RaisingLLM(RateLimitExhausted("busy")))(base_state())
+
+
+def test_stale_insight_without_retry_indicator_is_not_reused():
+    from graph.llm import RateLimitExhausted
+    with pytest.raises(RateLimitExhausted):
+        make_analyst_node(_RaisingLLM(RateLimitExhausted("busy")))(base_state(insight=_prev_insight()))
+
+
+def test_prompt_too_large_propagates_on_first_attempt_and_retry():
+    from graph.llm import PromptTooLarge
+    with pytest.raises(PromptTooLarge):
+        make_analyst_node(_RaisingLLM(PromptTooLarge("big")))(base_state())
+    with pytest.raises(PromptTooLarge):
+        make_analyst_node(_RaisingLLM(PromptTooLarge("big")))(
+            base_state(insight=_prev_insight(), guard_error="x"))
+
+
+def test_slice_shrinks_when_manager_reports_used_capacity():
+    from types import SimpleNamespace
+    wide = pd.DataFrame({f"col{c}": [f"value{r:07d}" for r in range(200)] for c in range(20)})
+    fresh, busy = FakeLLM([GOOD]), FakeLLM([GOOD])
+    busy.manager = SimpleNamespace(used_last_minute=lambda model: 6000)
+    make_analyst_node(fresh)(base_state(data_slice=wide))
+    make_analyst_node(busy)(base_state(data_slice=wide))
+    assert count_tokens(busy.prompts[0]) < count_tokens(fresh.prompts[0]) - 4000

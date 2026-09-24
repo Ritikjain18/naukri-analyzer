@@ -18,8 +18,6 @@ OUTPUT_RESERVE = 1000
 SAFETY_MARGIN = 0.10
 RATE_HEADROOM = 0.9  # fraction of a model's TPM/TPD a single call may use
 SAMPLE_TOKENS = 1500
-# Tokens the orchestrator and retrieval judge typically spend in the same minute, before the analyst runs.
-PRIOR_CALLS_RESERVE = 2000
 # Groq free-tier assumptions; verify in the Groq console and edit here if they differ.
 MODEL_LIMITS = {
     MODEL_SMART: {"tpm": 12000, "tpd": 100000},
