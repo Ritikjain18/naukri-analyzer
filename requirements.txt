@@ -12,3 +12,4 @@ python-dotenv>=1.0
 pytest>=8
 tiktoken>=0.7
 guardrails-ai==0.11.0
+python-pptx>=1.0
