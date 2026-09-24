@@ -1,4 +1,5 @@
 import config
+from graph.llm import RateLimitExhausted, is_rate_limit
 from graph.parsing import extract_json
 from graph.prompts import render
 
@@ -42,6 +43,11 @@ def make_judge_node(llm, stage: str):
             correction = str(data.get("correction", "")).strip()
         except (ValueError, KeyError, TypeError):
             errors.append("Judge could not score this answer.")
+            return {"judge_verdict": "accept", "prompts": prompts, "errors": errors}
+        except Exception as exc:  # optional step: a rate limit must not kill the turn
+            if not (isinstance(exc, RateLimitExhausted) or is_rate_limit(exc)):
+                raise
+            errors.append("Judge skipped: rate limit.")
             return {"judge_verdict": "accept", "prompts": prompts, "errors": errors}
 
         accepted = min(scores.values()) >= config.JUDGE_MIN_SCORE

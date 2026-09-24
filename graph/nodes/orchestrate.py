@@ -1,4 +1,5 @@
 import config
+from graph.llm import RateLimitExhausted, is_rate_limit
 from graph.nodes.analyst import format_history
 from graph.parsing import extract_json
 from graph.prompts import render
@@ -13,12 +14,18 @@ def make_orchestrate_node(llm):
         prompt = render("orchestrator", schema=state.get("schema", ""), summary=state.get("data_summary", ""),
                         history=format_history(state.get("chat_history", [])), question=question)
         prompts = list(state.get("prompts", [])) + [{"node": "orchestrate", "prompt": prompt}]
+        errors = list(state.get("errors", []))
         try:
             data = extract_json(llm.invoke(prompt).content)
             plan = {"intent": str(data.get("intent") or question),
                     "retrieval_instruction": str(data.get("retrieval_instruction") or question)}
         except ValueError:
             plan = fallback
-        return {"orchestration": plan, "query_type": "sql", "prompts": prompts}
+        except Exception as exc:  # optional step: a rate limit must not kill the turn
+            if not (isinstance(exc, RateLimitExhausted) or is_rate_limit(exc)):
+                raise
+            plan = fallback
+            errors.append("Orchestrator skipped: rate limit.")
+        return {"orchestration": plan, "query_type": "sql", "prompts": prompts, "errors": errors}
 
     return orchestrate

@@ -26,3 +26,26 @@ def test_orchestrate_skips_llm_when_judge_disabled(monkeypatch):
     llm = FakeLLM([])
     out = make_orchestrate_node(llm)(STATE)
     assert out["orchestration"]["retrieval_instruction"] == STATE["question"] and llm.prompts == []
+
+
+class _Limited:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def invoke(self, prompt):
+        raise self.exc
+
+
+def test_orchestrate_rate_limit_uses_fallback_plan_and_warns():
+    from graph.llm import RateLimitExhausted
+
+    out = make_orchestrate_node(_Limited(RateLimitExhausted("busy")))({**STATE, "errors": ["earlier"]})
+    assert out["orchestration"]["retrieval_instruction"] == STATE["question"]
+    assert out["errors"] == ["earlier", "Orchestrator skipped: rate limit."]
+
+
+def test_orchestrate_other_errors_propagate():
+    import pytest
+
+    with pytest.raises(RuntimeError):
+        make_orchestrate_node(_Limited(RuntimeError("boom")))(STATE)

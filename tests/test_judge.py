@@ -82,3 +82,24 @@ def test_switches_skip_the_call(monkeypatch, stage, flag):
 def test_empty_slice_skips_the_call():
     llm = FakeLLM([])
     assert make_judge_node(llm, "analyst")(state(data_slice=SLICE.iloc[0:0])) == {"judge_verdict": "accept"}
+
+
+class _Limited:
+    def __init__(self, exc):
+        self.exc = exc
+
+    def invoke(self, prompt):
+        raise self.exc
+
+
+def test_judge_rate_limit_accepts_with_warning():
+    from graph.llm import RateLimitExhausted
+
+    out = make_judge_node(_Limited(RateLimitExhausted("busy")), "analyst")(state())
+    assert out["judge_verdict"] == "accept"
+    assert out["errors"] == ["Judge skipped: rate limit."]
+
+
+def test_judge_other_errors_propagate():
+    with pytest.raises(RuntimeError):
+        make_judge_node(_Limited(RuntimeError("boom")), "analyst")(state())
