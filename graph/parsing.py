@@ -2,9 +2,28 @@ import json
 import re
 
 
+_LANGS = r"(?:sql|sqlite|python|py|pandas)"
+
+
+def _strip_fence(text: str) -> str:
+    m = re.search(r"```\w*[ \t]*\n(.*?)(?:```|\Z)", text, re.S)  # multi-line, closed or unclosed
+    if m:
+        return m.group(1)
+    m = re.search(r"```(.*?)```", text, re.S)  # single-line
+    if m:
+        return re.sub(rf"^\s*{_LANGS}\s+", "", m.group(1), flags=re.I)
+    return text.replace("```", "")
+
+
 def extract_code(text: str) -> str:
-    m = re.search(r"```(?:\w+)?\s*\n(.*?)```", text, re.S)
-    body = m.group(1) if m else text
+    return _strip_fence(text).strip().rstrip(";").strip()
+
+
+def extract_sql(text: str) -> str:
+    body = _strip_fence(text)
+    m = re.search(r"\b(with|select)\b", body, re.I)
+    if m:
+        body = body[m.start():]
     return body.strip().rstrip(";").strip()
 
 

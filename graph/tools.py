@@ -4,7 +4,7 @@ import re
 import pandas as pd
 
 from config import ROW_CAP
-from graph.parsing import extract_code
+from graph.parsing import extract_code, extract_sql
 from graph.prompts import render
 
 
@@ -17,7 +17,7 @@ def make_sql_tool(store, llm, row_cap: int = ROW_CAP):
         error_note = ""
         for _ in range(2):
             prompt = render("sql", schema=schema, limit=row_cap, question=question, error_note=error_note)
-            sql = extract_code(llm.invoke(prompt).content)
+            sql = extract_sql(llm.invoke(prompt).content)
             if not re.match(r"\s*(select|with)\b", sql, re.I):
                 error_note = f"Your previous output was not a SELECT statement: {sql!r}. Return only one SELECT."
                 continue

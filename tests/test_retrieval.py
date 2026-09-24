@@ -111,3 +111,9 @@ def test_pandas_tool_syntax_error_is_failed_attempt():
 def test_pandas_tool_legit_expressions(expr, check):
     df = pd.DataFrame({"g": ["x", "x", "y"], "v": [1, 2, 3], "d": ["2024-01-05", "2024-01-09", "2024-02-01"]})
     assert check(make_pandas_tool(FakeLLM([expr]))("q", df))
+
+
+def test_sql_tool_handles_chatty_output(seeded):
+    llm = FakeLLM(["Sure! Here is the query: SELECT COUNT(*) AS n FROM jobs;"])
+    out = make_sql_tool(seeded, llm)("how many", seeded.schema_text())
+    assert out["n"][0] == 3
