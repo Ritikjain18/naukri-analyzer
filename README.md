@@ -22,7 +22,7 @@ The app assumes a single local user: uploads write to the shared local SQLite da
 - **Switches:** `JUDGE_ENABLED` and `JUDGE_RETRIEVAL` in `config.py`. Free-tier cost note: a question makes about 7 model calls on the happy path (orchestrate, 2 judges, analyst, visualization, plus ingest on first load) and about 27 in the worst retry case; when the smart model's budget runs low the manager falls back to the fast model. The analyst slice adapts to the smart model's remaining per-minute capacity (headroom minus tokens already used this minute), and a rate-limited retry keeps the previous answer instead of failing.
 - **Slide-deck export:** approved insights (or all, if none approved) are listed in the sidebar under "Slide deck"; pick some and click "Export slide deck" to download a .pptx with one insight per slide and native charts. Answers also show which models produced them and the judge scores.
 - Together AI is not configured.
-- The live tests (`pytest -m live`) now make about 7 Groq calls per question (orchestrate, judge x2, analyst, visualization, plus retries).
+- The live tests (`pytest -m live`) now make about 7 Groq calls per question (orchestrate, judge x2, analyst, visualization, plus retries). They build the app's fallback chain, pace 10 s between questions, wait 65 s and retry a question once on a rate limit, and set `LIVE_REPORT_PATH` to append a JSONL report (one line per question).
 
 **tiktoken note:** token counting uses tiktoken, which downloads its ~1.7 MB `cl100k_base` data file on first use (internet needed once; macOS may clear the cache). Offline, it falls back to a character-based estimate.
 
