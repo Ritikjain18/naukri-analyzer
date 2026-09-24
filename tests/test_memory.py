@@ -336,3 +336,43 @@ def test_summarise_session_list_shapes():
     assert out["topics"] == ["5", "x"]                                   # keep str and int; drop None/dict/list
     out = summarise_session(FakeLLM([json.dumps({"topics": {"a": 1}, "key_findings": 7})]), entries)
     assert out["topics"] == [] and out["key_findings"] == ["7"]
+
+
+def test_reclaim_of_long_ended_session_is_not_reset_by_concurrent_pending(env):
+    sid = add_session(env)
+    env["sess"].end(sid)
+    env["db"].execute("UPDATE sessions SET summarised = 0 WHERE id = ?", (sid,))     # deferred earlier, released
+    env["clock"].now += timedelta(hours=2)
+    llm = SlowLLM([GOOD, GOOD])
+    mem = MemoryService(env["db"], env["hist"], env["sess"], llm)
+    a = threading.Thread(target=lambda: mem.end_session(sid, env["uid"]))
+    a.start()
+    time.sleep(0.05)                                                     # A now holds the claim, LLM in flight
+    assert mem.summarise_pending(env["uid"]) == 0
+    a.join()
+    assert len(llm.prompts) == 1 and len(env["db"].query("SELECT * FROM session_summaries")) == 1
+
+
+def test_old_claim_is_reset_but_five_minute_claim_is_not(env):
+    sid, mem = _claim_stale_setup(env, 5)
+    assert mem.summarise_pending(env["uid"]) == 0 and env["sess"].get(sid)["summarised"] == 2
+    env["clock"].now += timedelta(minutes=26)                            # now 31 minutes old
+    assert mem.summarise_pending(env["uid"]) == 1
+
+
+def test_legacy_claim_without_timestamp_is_stale(env):
+    sid = add_session(env)
+    env["sess"].end(sid)                                                 # round-1 claims always stamped ended_at
+    env["db"].execute("UPDATE sessions SET summarised = 2 WHERE id = ?", (sid,))
+    mem = MemoryService(env["db"], env["hist"], env["sess"], FakeLLM([GOOD]))
+    assert mem.summarise_pending(env["uid"]) == 1
+
+
+def test_release_and_success_clear_claimed_at(env):
+    sid = add_session(env)
+    limited = MemoryService(env["db"], env["hist"], env["sess"], RaisingLLM(RateLimitExhausted("x")))
+    assert limited._claim(sid) and env["sess"].get(sid)["claimed_at"]
+    limited._release(sid)
+    assert env["sess"].get(sid)["claimed_at"] is None
+    assert MemoryService(env["db"], env["hist"], env["sess"], FakeLLM([GOOD])).end_session(sid, env["uid"]) == "summarised"
+    assert env["sess"].get(sid)["claimed_at"] is None and env["sess"].get(sid)["summarised"] == 1

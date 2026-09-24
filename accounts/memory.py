@@ -82,22 +82,24 @@ class MemoryService:
 
     def _claim(self, session_id: str) -> bool:
         """Atomically claim a pending session. A claim implies the session is over, so ended_at is stamped."""
+        now = iso(self.db.now())
         cur = self.db.execute(
-            "UPDATE sessions SET summarised = ?, ended_at = COALESCE(ended_at, ?) WHERE id = ? AND summarised = ?",
-            (IN_PROGRESS, iso(self.db.now()), session_id, PENDING))
+            "UPDATE sessions SET summarised = ?, claimed_at = ?, ended_at = COALESCE(ended_at, ?)"
+            " WHERE id = ? AND summarised = ?",
+            (IN_PROGRESS, now, now, session_id, PENDING))
         return cur.rowcount == 1
 
     def _release(self, session_id: str) -> None:
-        self.db.execute("UPDATE sessions SET summarised = ? WHERE id = ? AND summarised = ?",
+        self.db.execute("UPDATE sessions SET summarised = ?, claimed_at = NULL WHERE id = ? AND summarised = ?",
                         (PENDING, session_id, IN_PROGRESS))
 
     def _reset_stale_claims(self, user_id: int) -> None:
         """A summary call takes seconds, so a claim older than ABANDONED_SESSION_MINUTES belongs to a killed
-        process and is certainly stale; release it so the session is summarised again."""
+        process and is certainly stale (legacy claims with no claimed_at are stale too; ended_at is never compared); release it so the session is summarised again."""
         cutoff = iso(self.db.now() - timedelta(minutes=config.ABANDONED_SESSION_MINUTES))
         with self.db.lock:
-            self.db.execute("UPDATE sessions SET summarised = ? WHERE user_id = ? AND summarised = ?"
-                            " AND ended_at <= ?", (PENDING, user_id, IN_PROGRESS, cutoff))
+            self.db.execute("UPDATE sessions SET summarised = ?, claimed_at = NULL WHERE user_id = ?"
+                            " AND summarised = ? AND (claimed_at IS NULL OR claimed_at <= ?)", (PENDING, user_id, IN_PROGRESS, cutoff))
 
     def _summarise(self, session_id: str, user_id: int) -> str:
         """Returns "summarised", "skipped" (no questions), "deferred" (rate limited) or "in_progress"
@@ -120,6 +122,7 @@ class MemoryService:
                                         (user_id, session_id, iso(self.db.now()), json.dumps(summary)))
                 try:
                     self.sessions.mark_summarised(session_id)
+                    self.db.execute("UPDATE sessions SET claimed_at = NULL WHERE id = ?", (session_id,))
                 except BaseException:
                     self.db.execute("DELETE FROM session_summaries WHERE id = ?", (row_id,))
                     raise

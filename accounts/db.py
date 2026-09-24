@@ -3,7 +3,7 @@ import threading
 from datetime import datetime, timezone
 from pathlib import Path
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     last_activity_at TEXT NOT NULL,
     ended_at TEXT,
     question_count INTEGER NOT NULL DEFAULT 0,
-    summarised INTEGER NOT NULL DEFAULT 0
+    summarised INTEGER NOT NULL DEFAULT 0,
+    claimed_at TEXT
 );
 CREATE TABLE IF NOT EXISTS insight_history (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,6 +94,9 @@ class AppDB:
         self._clock = clock or utcnow
         with self._lock:
             self._conn.executescript(SCHEMA)
+            cols = [r["name"] for r in self._conn.execute("PRAGMA table_info(sessions)")]
+            if "claimed_at" not in cols:                       # v1 -> v2 migration
+                self._conn.execute("ALTER TABLE sessions ADD COLUMN claimed_at TEXT")
             self._conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
             self._conn.commit()
 

@@ -20,7 +20,7 @@ def test_schema_created_and_idempotent(tmp_path):
     path = tmp_path / "app.db"
     db = AppDB(path)
     names = {r["name"] for r in db.query("SELECT name FROM sqlite_master WHERE type='table'")}
-    assert TABLES <= names and db.version == 1
+    assert TABLES <= names and db.version == 2
     AppDB(path)  # opening again must not fail or duplicate
 
 
@@ -76,3 +76,28 @@ def test_failed_statement_rolls_back_and_releases_write_lock(tmp_path):
     other = AppDB(path)
     other.insert(sql, ("bob", "h", "analyst", "t"))
     assert other.one("SELECT COUNT(*) AS n FROM users")["n"] == 2
+
+
+def test_migrates_old_schema_without_data_loss_and_is_idempotent(tmp_path):
+    import sqlite3
+
+    path = tmp_path / "old.db"
+    conn = sqlite3.connect(str(path))
+    conn.executescript("""
+        CREATE TABLE sessions (id TEXT PRIMARY KEY, user_id INTEGER NOT NULL, started_at TEXT NOT NULL,
+            last_activity_at TEXT NOT NULL, ended_at TEXT, question_count INTEGER NOT NULL DEFAULT 0,
+            summarised INTEGER NOT NULL DEFAULT 0);
+        INSERT INTO sessions (id, user_id, started_at, last_activity_at, question_count)
+            VALUES ('s1', 1, 't', 't', 3);
+        PRAGMA user_version = 1;
+    """)
+    conn.commit()
+    conn.close()
+    from accounts.db import AppDB
+
+    for _ in range(2):                                                   # second open must be a no-op
+        db = AppDB(path)
+        cols = [r["name"] for r in db.query("PRAGMA table_info(sessions)")]
+        assert cols.count("claimed_at") == 1 and db.version == 2
+        row = db.one("SELECT * FROM sessions WHERE id = 's1'")
+        assert row["question_count"] == 3 and row["claimed_at"] is None
