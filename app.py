@@ -10,6 +10,7 @@ from graph.llm import build_llm, friendly_error
 from graph.nodes.ingest import make_ingest_node
 from graph.ratelimit import RateLimitManager
 from graph.state import new_turn
+from graph.textsafe import safe_text
 from graph.tools import make_sql_tool
 from graph.viz import build_figure
 
@@ -94,16 +95,16 @@ def render_feedback(m, i) -> None:
 
 def render_assistant(m, i):
     ins = m["insight"]
-    st.markdown(f"**{ins['finding']}**")
+    st.markdown(f"**{safe_text(ins['finding'])}**")
     for e in ins["evidence"]:
-        st.markdown(f"- {e}")
-    st.markdown(f"*Recommendation:* {ins['recommendation']}")
+        st.markdown(f"- {safe_text(e)}")
+    st.markdown(f"*Recommendation:* {safe_text(ins['recommendation'])}")
     if m.get("degraded"):
         st.warning("Answer failed validation — showing the raw data instead.")
     if m["chart"] is not None:
         st.plotly_chart(build_figure(m["chart"], m["slice"]), width="stretch")
     for err in m["errors"]:
-        st.caption(err)
+        st.caption(safe_text(err))
     if m.get("models"):
         st.caption("Answered by: " + ", ".join(m["models"]))
     with st.expander("Data used"):
@@ -117,7 +118,7 @@ def render_assistant(m, i):
 
 with st.sidebar:
     st.header("Data")
-    st.caption("Tables: " + ", ".join(store.list_tables()))
+    st.caption("Tables: " + ", ".join(safe_text(t) for t in store.list_tables()))
     up = st.file_uploader("Upload Excel / CSV / JSON", type=["xlsx", "csv", "json"])
     if up is not None and st.button("Load file"):
         try:
@@ -130,7 +131,7 @@ with st.sidebar:
             st.error(friendly_error(exc))
     if shared.get("data_summary"):
         with st.expander("Data summary"):
-            st.write(shared["data_summary"])
+            st.markdown(safe_text(shared["data_summary"]))
             for p in st.session_state.get("ingest_prompts", []):
                 st.caption(p["node"])
                 st.code(p["prompt"], language="text")

