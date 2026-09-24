@@ -21,3 +21,12 @@ def _fast_scrypt(monkeypatch):
     from accounts import auth
 
     monkeypatch.setattr(auth, "SCRYPT_N", 16)
+
+
+@pytest.fixture(autouse=True)
+def _reset_prompt_overrides():
+    from graph import prompts
+
+    prompts.set_overrides({})
+    yield
+    prompts.set_overrides({})
