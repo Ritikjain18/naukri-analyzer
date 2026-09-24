@@ -8,7 +8,7 @@ import config
 from data.seed import seed_database
 from graph.build_graph import build_graph
 from graph.llm import get_llm
-from graph.tools import make_pandas_tool, make_sql_tool
+from graph.tools import make_sql_tool
 
 QUESTIONS = json.loads((Path(__file__).parent / "eval_questions.json").read_text())
 
@@ -25,7 +25,7 @@ def graph(tmp_path_factory):
     store = SQLiteStore(tmp_path_factory.mktemp("live") / "live.db")
     seed_database(store, scale=0.2)
     fast, smart = get_llm(config.MODEL_FAST), get_llm(config.MODEL_SMART)
-    return build_graph(store, fast, smart, make_sql_tool(store, fast), make_pandas_tool(fast))
+    return build_graph(store, fast, smart, make_sql_tool(store, fast))
 
 
 @pytest.mark.parametrize("item", QUESTIONS, ids=[q["question"][:40] for q in QUESTIONS])

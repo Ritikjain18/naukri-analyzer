@@ -11,7 +11,7 @@ def route_entry(state) -> str:
     return "retrieve" if state.get("data_summary") else "ingest"
 
 
-def build_graph(store, fast_llm, smart_llm, sql_tool, pandas_tool):
+def build_graph(store, fast_llm, smart_llm, sql_tool, pandas_tool=None):
     g = StateGraph(AnalyzerState)
     g.add_node("ingest", make_ingest_node(store, fast_llm))
     g.add_node("retrieve", make_retrieve_node(sql_tool, pandas_tool))

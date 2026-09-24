@@ -69,3 +69,12 @@ def test_chart_failure_is_reported_not_raised(store):
     assert result["chart_config"] is None
     assert result["errors"] == ["Chart could not be generated."]
     assert result["insight"].finding == "Eng leads."
+
+
+def test_build_graph_without_pandas_tool_uses_sql_for_uploaded_df(store):
+    store.replace_table(pd.DataFrame({"a": [1]}), "t")
+    df = pd.DataFrame({"salary": [1, 2], "city": ["x", "y"]})
+    graph = build_graph(store, FakeLLM(["DB summary", CHART]), FakeLLM([INSIGHT]), sql_tool)
+    result = graph.invoke({"question": "average salary by city", "df": df, "prompts": [], "errors": []})
+    assert result["query_type"] == "sql"
+    assert "retrieve-sql" in [p["node"] for p in result["prompts"]]

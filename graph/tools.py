@@ -87,6 +87,8 @@ def _to_frame(result) -> pd.DataFrame:
     return pd.DataFrame({"value": [result]})
 
 
+# NOT wired into the app: eval of model-written code is unsafe with a deny-list filter
+# (proven bypassable). Needs an AST allowlist/sandbox before it is used anywhere.
 def make_pandas_tool(llm, row_cap: int = ROW_CAP):
     def run(question: str, df: pd.DataFrame, history: str = "(none)", trace: list | None = None) -> pd.DataFrame:
         error_note = ""

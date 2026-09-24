@@ -6,7 +6,7 @@ from data.store import SQLiteStore
 from graph.build_graph import build_graph
 from graph.llm import friendly_error, get_llm
 from graph.nodes.ingest import make_ingest_node
-from graph.tools import make_pandas_tool, make_sql_tool
+from graph.tools import make_sql_tool
 from graph.viz import build_figure
 
 st.set_page_config(page_title="Naukri Personal Data Analyzer", layout="wide")
@@ -28,7 +28,7 @@ def get_runtime():
         seed_database(store)
     fast = get_llm(config.MODEL_FAST)
     smart = get_llm(config.MODEL_SMART)
-    graph = build_graph(store, fast, smart, make_sql_tool(store, fast), make_pandas_tool(fast))
+    graph = build_graph(store, fast, smart, make_sql_tool(store, fast))
     return store, make_ingest_node(store, fast), graph
 
 

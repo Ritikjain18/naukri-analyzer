@@ -35,3 +35,9 @@ def test_graph_error_is_persisted_across_reruns(monkeypatch, tmp_path):
         assert [m["role"] for m in at.session_state["messages"]] == ["user", "assistant"]
     finally:
         st.cache_resource.clear()
+
+
+def test_app_does_not_construct_pandas_tool():
+    from pathlib import Path
+
+    assert "make_pandas_tool" not in (Path(__file__).parent.parent / "app.py").read_text()
