@@ -25,6 +25,7 @@ INSIGHT = json.dumps({"finding": "Engineering has the highest conversion rate.",
                       "evidence": ["Eng 20% vs Sales 10%"], "recommendation": "Invest in Engineering."})
 CHART = json.dumps({"type": "bar", "x": "category", "y": "conversion", "title": "Conversion"})
 SMART_SCRIPT = [ORCH, OK, INSIGHT, OK]
+BACKUP_SCRIPT = [OK, INSIGHT, OK, OK]  # 8B backup: judges score cleanly, analyst can answer
 SHARED = {"data_summary": "S", "schema": "job_postings(category TEXT, conversion REAL)"}
 
 
@@ -42,7 +43,7 @@ def setup(store, tmp_path, frame=small_frame, fast_script=(CHART,), smart_script
     store.replace_table(pd.DataFrame({"a": [1]}), "job_postings")
     manager = RateLimitManager(tmp_path / "u.db")
     smart_fake = ReportingLLM(smart_script)
-    smart_backup = ReportingLLM(smart_script if backup_script is None else backup_script)
+    smart_backup = ReportingLLM(BACKUP_SCRIPT if backup_script is None else backup_script)
     fast = FallbackLLM([(MODEL_FAST, ReportingLLM(list(fast_script)))], manager)
     smart = FallbackLLM([(MODEL_SMART, smart_fake), (MODEL_FAST, smart_backup)], manager)
 
@@ -71,7 +72,7 @@ def test_happy_path_uses_smart_model_and_records_usage(store, tmp_path):
 
 
 def test_exhausted_70b_falls_back_to_8b_for_the_same_question(store, tmp_path):
-    graph, fast, smart, manager, smart_fake = setup(store, tmp_path)
+    graph, fast, smart, manager, smart_fake = setup(store, tmp_path, backup_script=SMART_SCRIPT)
     manager.record(MODEL_SMART, 11000)
     result = run(graph)
     assert result["insight"].finding == "Engineering has the highest conversion rate."
@@ -84,7 +85,8 @@ def test_wide_slice_completes_without_rate_limit_error(store, tmp_path):
     result = run(graph)
     assert result["insight"].finding.startswith("Engineering")
     # the analyst is served by 70B; later judges may fall to 8B once its per-minute budget is spent
-    assert smart.used_models()[0] == MODEL_SMART
+    assert len(smart_fake.prompts) >= 3 and "Data slice (CSV)" in smart_fake.prompts[2]
+    assert "Judge could not score this answer." not in result.get("errors", [])
     analyst_prompt = next(p["prompt"] for p in result["prompts"] if p["node"] == "analyst")
     assert "# truncated" in analyst_prompt
     assert count_tokens(analyst_prompt) + OUTPUT_RESERVE <= RATE_HEADROOM * 12000
@@ -131,29 +133,49 @@ def test_long_description_column_without_history_completes(store, tmp_path):
     assert not result.get("degraded")
 
 
-def test_guard_retry_after_full_size_analyst_call_never_raises_rate_limit(store, tmp_path):
-    smart_script = [ORCH, OK, FABRICATED, INSIGHT, OK]
-    backup_script = [INSIGHT, OK]
+def test_guard_retry_after_full_size_analyst_call_ends_with_corrected_answer(store, tmp_path):
     graph, fast, smart, manager, smart_fake = setup(
-        store, tmp_path, frame=wide_frame, smart_script=smart_script, backup_script=backup_script)
+        store, tmp_path, frame=wide_frame, smart_script=[ORCH, OK, FABRICATED, INSIGHT, OK],
+        backup_script=[INSIGHT, OK])
     result = run(graph, {**SHARED, "data_summary": SUMMARY_LONG}, chat_history=HISTORY)
-    skipped = any("Retry skipped" in e for e in result.get("errors", []))
-    if skipped:
-        assert result["degraded"] is True
-    else:
-        assert result["insight"].finding == "Engineering has the highest conversion rate."
-        assert not result.get("degraded")
-        analyst_prompts = [p["prompt"] for p in result["prompts"] if p["node"] == "analyst"]
-        assert len(analyst_prompts) == 2 and len(analyst_prompts[1]) < len(analyst_prompts[0])
+    assert result["insight"].finding == "Engineering has the highest conversion rate."
+    assert not result.get("degraded")
+    assert not any("Retry skipped" in e for e in result.get("errors", []))
+    assert "Judge could not score this answer." not in result.get("errors", [])
+    analyst_prompts = [p["prompt"] for p in result["prompts"] if p["node"] == "analyst"]
+    assert len(analyst_prompts) == 2 and count_tokens(analyst_prompts[1]) < count_tokens(analyst_prompts[0])
 
 
-def test_first_attempt_rate_limit_still_raises_and_maps_to_friendly_message(store, tmp_path):
-    graph, fast, smart, manager, _ = setup(store, tmp_path, frame=wide_frame)
-    manager.record(MODEL_SMART, 10200)
-    manager.record(MODEL_FAST, 5000)
+def test_guard_retry_with_8b_exhausted_degrades_without_raising(store, tmp_path):
+    graph, fast, smart, manager, smart_fake = setup(
+        store, tmp_path, frame=wide_frame, smart_script=[ORCH, OK, FABRICATED, INSIGHT, OK])
+    manager.record(MODEL_FAST, 5300)
+    result = run(graph, {**SHARED, "data_summary": SUMMARY_LONG}, chat_history=HISTORY)
+    assert result["degraded"] is True
+    assert any("Retry skipped" in e for e in result["errors"])
+
+
+def test_malformed_first_attempt_is_retried_with_a_smaller_slice(store, tmp_path):
+    graph, fast, smart, manager, smart_fake = setup(
+        store, tmp_path, frame=wide_frame, smart_script=[ORCH, OK, "not json", INSIGHT, OK],
+        backup_script=[INSIGHT, OK])
+    result = run(graph, {**SHARED, "data_summary": SUMMARY_LONG})
+    assert result["insight"].finding == "Engineering has the highest conversion rate."
+    analyst_prompts = [p["prompt"] for p in result["prompts"] if p["node"] == "analyst"]
+    assert len(analyst_prompts) == 2 and count_tokens(analyst_prompts[1]) < count_tokens(analyst_prompts[0])
+
+
+def test_first_attempt_rate_limit_at_the_analyst_raises_and_maps_to_friendly_message(store, tmp_path):
+    graph, fast, smart, manager, smart_fake = setup(store, tmp_path, frame=wide_frame)
+    backup_fake = smart.chain[1][1]
+    manager.record(MODEL_SMART, 9000)
+    manager.record(MODEL_FAST, 3000)
     with pytest.raises(RateLimitExhausted) as info:
         run(graph)
     assert not isinstance(info.value, PromptTooLarge)
+    sent = smart_fake.prompts + backup_fake.prompts
+    assert sent, "orchestrator/judge calls must have been served before the analyst"
+    assert not any("Data slice (CSV)" in p for p in sent)   # the analyst prompt was never sent
     assert "wait a minute" in friendly_error(info.value).lower()
 
 

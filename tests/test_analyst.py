@@ -140,7 +140,7 @@ def test_retry_with_rate_limit_keeps_previous_insight():
         out = make_analyst_node(_RaisingLLM(RateLimitExhausted("busy")))(
             base_state(insight=prev, errors=["earlier"], **retry))
         assert out["insight"] is prev
-        assert out["errors"] == ["earlier", "Retry skipped: rate limit reached, keeping the previous answer."]
+        assert out["errors"] == ["earlier", "Retry skipped: rate limit reached, keeping the last answer."]
         assert out["prompts"][-1]["node"] == "analyst"
 
 

@@ -45,14 +45,13 @@ def make_analyst_node(llm):
                     if state.get("revision_note") else "")
         worst_note = ERROR_NOTE.format(detail="x" * ERROR_DETAIL_MAX)  # reserve the retry note
         overhead = count_tokens(render("query", "v2", slice="", error_note=worst_note, **base))
-        # Size against what the rate-limit manager will admit right now: the request budget minus tokens already
-        # used this minute (orchestrator/judge calls, earlier attempts). Retries recompute, so the slice shrinks.
-        manager = getattr(llm, "manager", None)
-        used = manager.used_last_minute(MODEL_SMART) if manager else 0
-        budget = slice_budget(MODEL_SMART, overhead, used)
-        slice_text = fit_rows(data_slice, budget)
         error_note = ""
+        manager = getattr(llm, "manager", None)
         for _ in range(2):
+            # Size against what the rate-limit manager will admit right now (request budget minus tokens used this
+            # minute). Recomputed per attempt so a second attempt's slice shrinks after a full-size first call.
+            used = manager.used_last_minute(MODEL_SMART) if manager else 0
+            slice_text = fit_rows(data_slice, slice_budget(MODEL_SMART, overhead, used))
             prompt = render("query", "v2", slice=slice_text, error_note=error_note, **base)
             prompts.append({"node": "analyst", "prompt": prompt})
             try:
@@ -64,7 +63,7 @@ def make_analyst_node(llm):
                     raise
                 return {"insight": state["insight"], "prompts": prompts,
                         "errors": list(state.get("errors", []))
-                        + ["Retry skipped: rate limit reached, keeping the previous answer."]}
+                        + ["Retry skipped: rate limit reached, keeping the last answer."]}
             except ValueError as exc:
                 error_note = ERROR_NOTE.format(detail=str(exc)[:ERROR_DETAIL_MAX])
         raise AnalysisError("The analyst could not produce a valid insight.")
