@@ -1,6 +1,7 @@
 from pathlib import Path
 
-from config import DESCRIBE_COLUMNS, SAMPLE_CHARS
+from config import DESCRIBE_COLUMNS, SAMPLE_TOKENS
+from graph.budget import clip_to_tokens
 from data.parsing import parse_upload
 from data.store import sanitize_name
 from graph.prompts import render
@@ -11,20 +12,20 @@ def quote_ident(name: str) -> str:
     return '"' + name.replace('"', '""') + '"'
 
 
-def _clip(text: str, limit: int = SAMPLE_CHARS) -> str:
-    return text if len(text) <= limit else text[: limit - 3] + "..."
+def _clip_sample(text: str) -> str:
+    return clip_to_tokens(text, SAMPLE_TOKENS)
 
 
 def _sample_for_df(df) -> str:
     described = df.iloc[:, :DESCRIBE_COLUMNS].describe(include="all").round(2).to_csv()
-    return _clip(df.head(5).to_csv(index=False) + "\n" + described)
+    return _clip_sample(df.head(5).to_csv(index=False) + "\n" + described)
 
 
 def _sample_for_db(store) -> str:
     parts = []
     for table in store.list_tables():
         parts.append(f"-- {table}\n" + store.run_sql(f"SELECT * FROM {quote_ident(table)} LIMIT 3").to_csv(index=False))
-    return _clip("\n".join(parts)) or "(database is empty)"
+    return _clip_sample("\n".join(parts)) or "(database is empty)"
 
 
 def make_ingest_node(store, llm):

@@ -3,6 +3,7 @@ import json
 import pandas as pd
 import pytest
 
+from graph.budget import count_tokens, effective_limit
 from graph.nodes.analyst import AnalysisError, format_history, make_analyst_node
 from tests.fakes import FakeLLM
 
@@ -54,13 +55,13 @@ def test_analyst_empty_slice_skips_llm():
     assert llm.prompts == []
 
 
-def test_analyst_truncates_large_slice_to_fit_prompt_cap():
+def test_analyst_truncates_large_slice_to_fit_token_budget():
     import config
     big = pd.DataFrame({f"col_{i}": [f"value_{r}_{i}" for r in range(200)] for i in range(40)})
     llm = FakeLLM([GOOD])
     make_analyst_node(llm)(base_state(data_slice=big))
     prompt = llm.prompts[0]
-    assert len(prompt) < config.MAX_PROMPT_CHARS
+    assert count_tokens(prompt) < effective_limit(config.MODEL_SMART) - config.OUTPUT_RESERVE
     assert "# truncated: showing " in prompt and " of 200 rows" in prompt
 
 

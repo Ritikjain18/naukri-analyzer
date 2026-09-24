@@ -1,4 +1,5 @@
-from config import SLICE_CHARS
+from config import MODEL_SMART, OUTPUT_RESERVE
+from graph.budget import count_tokens, effective_limit, fit_rows
 from graph.models import Insight
 from graph.parsing import extract_json
 from graph.prompts import render
@@ -15,22 +16,6 @@ def format_history(history: list[dict]) -> str:
     return "\n".join(f"Q: {h['question']}\nA: {h['finding']}" for h in history)
 
 
-def slice_to_csv(data_slice, budget: int = SLICE_CHARS, min_rows: int = 5) -> str:
-    """CSV of the slice, dropping trailing rows until it fits the budget (keeps at least min_rows)."""
-    total = len(data_slice)
-    text = data_slice.to_csv(index=False)
-    if len(text) <= budget:
-        return text
-    lo, hi = min(min_rows, total), total  # invariant: hi is too big or the full frame
-    while lo < hi:
-        mid = (lo + hi + 1) // 2
-        if len(data_slice.head(mid).to_csv(index=False)) <= budget:
-            lo = mid
-        else:
-            hi = mid - 1
-    return data_slice.head(lo).to_csv(index=False) + f"# truncated: showing {lo} of {total} rows\n"
-
-
 def make_analyst_node(llm):
     def analyst(state):
         data_slice = state["data_slice"]
@@ -44,17 +29,14 @@ def make_analyst_node(llm):
         domain = detect_domain(list(data_slice.columns))
         skill = load_skill(domain) if domain else "(none)"
         prompts = list(state.get("prompts", []))
+        base = dict(summary=state.get("data_summary", ""), skill=skill,
+                    history=format_history(state.get("chat_history", [])), question=state["question"])
+        overhead = count_tokens(render("query", slice="", error_note="", **base))
+        slice_budget = max(200, effective_limit(MODEL_SMART) - OUTPUT_RESERVE - overhead)
+        slice_text = fit_rows(data_slice, slice_budget)
         error_note = ""
         for _ in range(2):
-            prompt = render(
-                "query",
-                summary=state.get("data_summary", ""),
-                skill=skill,
-                history=format_history(state.get("chat_history", [])),
-                slice=slice_to_csv(data_slice),
-                question=state["question"],
-                error_note=error_note,
-            )
+            prompt = render("query", slice=slice_text, error_note=error_note, **base)
             prompts.append({"node": "analyst", "prompt": prompt})
             try:
                 insight = Insight(**extract_json(llm.invoke(prompt).content))

@@ -5,6 +5,7 @@ import pytest
 
 from data.parsing import parse_upload
 from data.store import SchemaMismatchError
+from graph.budget import count_tokens, effective_limit
 from graph.nodes.ingest import make_ingest_node
 from tests.fakes import FakeLLM
 
@@ -82,7 +83,7 @@ def test_wide_frame_sample_is_bounded(store):
     wide = pd.DataFrame({f"c{i}": [f"some long text value {r} {i}" * 3 for r in range(50)] for i in range(60)})
     llm = FakeLLM(["s"])
     make_ingest_node(store, llm)({"upload": {"name": "wide.csv", "bytes": wide.to_csv(index=False).encode()}})
-    assert len(llm.prompts[0]) < config.MAX_PROMPT_CHARS
+    assert count_tokens(llm.prompts[0]) < effective_limit(config.MODEL_FAST)
 
 
 def test_db_sample_is_bounded(store):
@@ -92,4 +93,4 @@ def test_db_sample_is_bounded(store):
     llm = FakeLLM(["s"])
     make_ingest_node(store, llm)({})
     assert "..." in llm.prompts[0]
-    assert len(llm.prompts[0]) < config.MAX_PROMPT_CHARS
+    assert count_tokens(llm.prompts[0]) < effective_limit(config.MODEL_FAST)
