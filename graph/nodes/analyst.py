@@ -1,5 +1,5 @@
 from config import MODEL_SMART, OUTPUT_RESERVE
-from graph.budget import count_tokens, effective_limit, fit_rows
+from graph.budget import count_tokens, fit_rows, request_budget
 from graph.models import Insight
 from graph.parsing import extract_json
 from graph.prompts import render
@@ -44,7 +44,9 @@ def make_analyst_node(llm):
                     if state.get("revision_note") else "")
         worst_note = ERROR_NOTE.format(detail="x" * ERROR_DETAIL_MAX)  # reserve the retry note
         overhead = count_tokens(render("query", "v2", slice="", error_note=worst_note, **base))
-        slice_budget = max(200, effective_limit(MODEL_SMART) - OUTPUT_RESERVE - overhead)
+        # Size against the admissible request budget (rate-limit headroom), not the raw TPM. The 200-token
+        # floor is kept: if even that overflows the budget the call goes ahead and FallbackLLM decides.
+        slice_budget = max(200, request_budget(MODEL_SMART) - OUTPUT_RESERVE - overhead)
         slice_text = fit_rows(data_slice, slice_budget)
         error_note = ""
         for _ in range(2):

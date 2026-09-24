@@ -102,3 +102,19 @@ def test_analyst_prompt_includes_guard_error_judge_correction_and_revision_note(
     make_analyst_node(llm)(base_state(judge_correction="cite the conversion rate", revision_note="top three only"))
     assert "cite the conversion rate" in llm.prompts[0] and "top three only" in llm.prompts[0]
     assert "failed validation" not in llm.prompts[0]
+
+
+def test_wide_slice_is_admissible_on_a_fresh_usage_log(tmp_path):
+    import config
+    from graph.llm import FallbackLLM
+    from graph.ratelimit import RateLimitManager
+
+    wide = pd.DataFrame({f"col{c}": [f"value{r:07d}" for r in range(200)] for c in range(20)})
+    fake = FakeLLM([GOOD])
+    manager = RateLimitManager(tmp_path / "u.db")
+    llm = FallbackLLM([(config.MODEL_SMART, fake), (config.MODEL_FAST, FakeLLM([GOOD]))], manager)
+    out = make_analyst_node(llm)(base_state(data_slice=wide))
+    assert out["insight"].finding == "Engineering converts best."
+    prompt = fake.prompts[0]
+    assert count_tokens(prompt) + config.OUTPUT_RESERVE <= config.RATE_HEADROOM * 12000
+    assert "# truncated" in prompt

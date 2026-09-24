@@ -3,9 +3,9 @@ import threading
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from config import MODEL_LIMITS
+from config import MODEL_LIMITS, RATE_HEADROOM
 
-HEADROOM = 0.9
+HEADROOM = RATE_HEADROOM
 
 
 class RateLimitManager:
@@ -47,6 +47,17 @@ class RateLimitManager:
     def used_today(self, model: str) -> int:
         now = self._clock().astimezone(timezone.utc)
         return self._used_since(model, now.replace(hour=0, minute=0, second=0, microsecond=0))
+
+    def fits_ever(self, model: str, est_tokens: int) -> bool:
+        """True if a call this size could be admitted at all, ignoring current usage."""
+        limit = self.limits.get(model)
+        if not limit:
+            return True
+        return est_tokens <= HEADROOM * limit["tpm"] and est_tokens <= HEADROOM * limit["tpd"]
+
+    def daily_blocked(self, model: str, est_tokens: int) -> bool:
+        limit = self.limits.get(model)
+        return bool(limit) and self.used_today(model) + est_tokens > HEADROOM * limit["tpd"]
 
     def can_use(self, model: str, est_tokens: int) -> bool:
         limit = self.limits.get(model)

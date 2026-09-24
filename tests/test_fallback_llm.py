@@ -96,3 +96,37 @@ def test_build_llm_makes_chain(monkeypatch, mgr):
     monkeypatch.setenv("GROQ_API_KEY", "gsk_test")
     llm = build_llm(["llama-3.3-70b-versatile", "llama-3.1-8b-instant"], mgr)
     assert [m for m, _ in llm.chain] == ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]
+
+
+def test_prompt_too_large_when_no_model_could_ever_take_it(mgr):
+    from graph.llm import TOO_LARGE_MSG, PromptTooLarge
+
+    llm = FallbackLLM([("big", Provider()), ("small", Provider())], mgr)
+    with pytest.raises(PromptTooLarge) as info:
+        llm.invoke("x" * 4 * 9500)   # ~9500 tokens + reserve > 0.9 * 10000 for every model
+    assert isinstance(info.value, RateLimitExhausted)
+    assert friendly_error(info.value) == TOO_LARGE_MSG
+
+
+def test_usage_block_is_not_prompt_too_large(mgr):
+    from graph.llm import PromptTooLarge
+
+    mgr.record("big", 9500)
+    mgr.record("small", 9500)
+    llm = FallbackLLM([("big", Provider()), ("small", Provider())], mgr)
+    with pytest.raises(RateLimitExhausted) as info:
+        llm.invoke("hello")
+    assert not isinstance(info.value, PromptTooLarge) and info.value.daily is False
+    assert "wait a minute" in friendly_error(info.value).lower()
+
+
+def test_daily_exhaustion_reports_daily_message(tmp_path):
+    limits = {"big": {"tpm": 10000, "tpd": 3000}, "small": {"tpm": 10000, "tpd": 3000}}
+    mgr = RateLimitManager(tmp_path / "d.db", limits=limits)
+    mgr.record("big", 2000)
+    mgr.record("small", 2000)
+    llm = FallbackLLM([("big", Provider()), ("small", Provider())], mgr)
+    with pytest.raises(RateLimitExhausted) as info:
+        llm.invoke("hello")
+    assert info.value.daily is True and "daily" in str(info.value)
+    assert friendly_error(info.value) == "Groq daily token limit reached for today. Try again after 00:00 UTC."

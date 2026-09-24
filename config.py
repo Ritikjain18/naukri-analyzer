@@ -16,6 +16,7 @@ USAGE_DB_PATH = ROOT / "data" / "usage.db"
 CONTEXT_WINDOW = 131072
 OUTPUT_RESERVE = 1000
 SAFETY_MARGIN = 0.10
+RATE_HEADROOM = 0.9  # fraction of a model's TPM/TPD a single call may use
 SAMPLE_TOKENS = 1500
 # Groq free-tier assumptions; verify in the Groq console and edit here if they differ.
 MODEL_LIMITS = {

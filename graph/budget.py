@@ -1,6 +1,6 @@
 import math
 
-from config import CONTEXT_WINDOW, MODEL_LIMITS, OUTPUT_RESERVE, SAFETY_MARGIN
+from config import CONTEXT_WINDOW, MODEL_LIMITS, OUTPUT_RESERVE, RATE_HEADROOM, SAFETY_MARGIN
 
 _encode_len = None  # callable(text) -> int; None = lazy tiktoken
 _enc = None
@@ -33,6 +33,11 @@ def count_tokens(text: str) -> int:
 
 def effective_limit(model: str) -> int:
     return min(CONTEXT_WINDOW, MODEL_LIMITS.get(model, {}).get("tpm", CONTEXT_WINDOW))
+
+
+def request_budget(model: str) -> int:
+    """Largest prompt+reserve a single call may use and still be admitted on a fresh usage log."""
+    return int(effective_limit(model) * RATE_HEADROOM)
 
 
 def available_tokens(model: str, system: str, history: str, question: str) -> int:

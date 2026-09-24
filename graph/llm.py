@@ -17,6 +17,7 @@ def get_llm(model: str, temperature: float = 0.0) -> ChatGroq:
 
 
 TOO_LARGE_MSG = "The data slice is too large for the model. Try a narrower question."
+DAILY_MSG = "Groq daily token limit reached for today. Try again after 00:00 UTC."
 
 
 def friendly_error(exc: Exception) -> str:
@@ -29,6 +30,10 @@ def friendly_error(exc: Exception) -> str:
     # Exception type / status code first, substring matching only as a fallback.
     if name in ("PayloadTooLarge", "RequestEntityTooLargeError") or status == 413:
         return TOO_LARGE_MSG
+    if isinstance(exc, PromptTooLarge):
+        return TOO_LARGE_MSG
+    if isinstance(exc, RateLimitExhausted) and exc.daily:
+        return DAILY_MSG
     if name in ("RateLimitError", "RateLimitExhausted") or status == 429:
         return "Groq rate limit reached. Wait a minute and try again."
     if name == "AuthenticationError" or status == 401:
@@ -48,6 +53,14 @@ def friendly_error(exc: Exception) -> str:
 
 class RateLimitExhausted(RuntimeError):
     """Every model in the chain is at (or near) its rate limit."""
+
+    def __init__(self, message: str = "", daily: bool = False):
+        super().__init__(message)
+        self.daily = daily
+
+
+class PromptTooLarge(RateLimitExhausted):
+    """The prompt exceeds every model's per-request headroom; waiting will never help."""
 
 
 def is_rate_limit(exc: Exception) -> bool:
@@ -84,6 +97,13 @@ class FallbackLLM:
         estimate = count_tokens(prompt) + OUTPUT_RESERVE
         candidates = [(m, llm) for m, llm in self.chain if self.manager.can_use(m, estimate)]
         if not candidates:
+            models = [m for m, _ in self.chain]
+            if not any(self.manager.fits_ever(m, estimate) for m in models):
+                raise PromptTooLarge("The prompt exceeds every model's per-request token limit.")
+            if all(self.manager.daily_blocked(m, estimate) or not self.manager.fits_ever(m, estimate)
+                   for m in models):
+                raise RateLimitExhausted("Every model in the fallback chain has hit its daily token limit.",
+                                         daily=True)
             raise RateLimitExhausted("Every model in the fallback chain is at its rate limit.")
         last_exc = None
         for model, llm in candidates:
