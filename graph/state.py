@@ -34,6 +34,7 @@ class AnalyzerState(TypedDict, total=False):
     retrieval_rejections: int
     analyst_rejections: int
     judge_scores: list
+    memory_index: int
 
 
 TURN_FIELDS = {

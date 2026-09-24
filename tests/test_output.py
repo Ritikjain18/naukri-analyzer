@@ -38,7 +38,7 @@ def test_output_happy_path():
     out = make_output_node(FakeLLM([GOOD]))(state())
     assert out["chart_config"].y == "rate"
     assert out["chat_history"] == [{"question": "q", "finding": "Eng leads."}]
-    assert out["insight_memory"][0]["finding"] == "Eng leads."
+    assert out["insight_memory"][0]["insight"]["finding"] == "Eng leads."
     assert out["prompts"][-1]["node"] == "visualization"
     assert out["errors"] == []
 
@@ -68,3 +68,20 @@ def test_history_trimmed_to_six():
     assert len(out["chat_history"]) == 6
     assert out["chat_history"][-1]["question"] == "q"
     assert out["chat_history"][0]["question"] == "q1"
+
+
+def test_memory_entry_has_chart_slice_and_index():
+    out = make_output_node(FakeLLM([GOOD]))(state(insight_memory=[{"question": "old"}]))
+    entry = out["insight_memory"][-1]
+    assert out["memory_index"] == 1 and entry["approved"] is False and entry["question"] == "q"
+    assert entry["insight"]["finding"] == "Eng leads." and entry["chart"]["type"] == "bar"
+    assert entry["slice"] == [{"category": "Eng", "rate": 0.2}, {"category": "Sales", "rate": 0.1}]
+
+
+def test_memory_slice_is_capped_and_chart_may_be_none():
+    import pandas as pd
+
+    big = pd.DataFrame({"category": [f"c{i}" for i in range(80)], "rate": [0.1] * 80})
+    out = make_output_node(FakeLLM(["bad", "bad"]))(state(data_slice=big))
+    entry = out["insight_memory"][-1]
+    assert len(entry["slice"]) == 50 and entry["chart"] is None

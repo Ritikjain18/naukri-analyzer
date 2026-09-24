@@ -34,6 +34,8 @@ def route_after_input(state) -> str:
 
     if state.get("guard_rejected"):
         return "end"
+    if state.get("revision_note"):
+        return "analyst"
     return route_entry(state)
 
 

@@ -29,7 +29,7 @@ def build_graph(store, fast_llm, smart_llm, sql_tool, pandas_tool=None):
     g.add_node("output", make_output_node(fast_llm))
     g.add_edge(START, "guard_input")
     g.add_conditional_edges("guard_input", route_after_input,
-                            {"end": END, "ingest": "ingest", "orchestrate": "orchestrate"})
+                            {"end": END, "ingest": "ingest", "orchestrate": "orchestrate", "analyst": "analyst"})
     g.add_edge("ingest", "orchestrate")
     g.add_edge("orchestrate", "retrieve")
     g.add_edge("retrieve", "judge_retrieval")

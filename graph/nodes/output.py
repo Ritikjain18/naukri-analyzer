@@ -1,4 +1,4 @@
-from config import HISTORY_TURNS
+from config import HISTORY_TURNS, MEMORY_SLICE_ROWS
 from graph.parsing import extract_json
 from graph.prompts import render
 from graph.viz import validate_chart
@@ -30,8 +30,11 @@ def make_output_node(llm):
         history = (state.get("chat_history", []) + [
             {"question": state["question"], "finding": insight.finding}
         ])[-HISTORY_TURNS:]
-        memory = list(state.get("insight_memory", [])) + [insight.model_dump()]
-        return {"chart_config": chart, "chat_history": history,
-                "insight_memory": memory, "prompts": prompts, "errors": errors}
+        entry = {"question": state["question"], "insight": insight.model_dump(),
+                 "chart": chart.model_dump() if chart else None,
+                 "slice": data_slice.head(MEMORY_SLICE_ROWS).to_dict("records"), "approved": False}
+        memory = list(state.get("insight_memory", [])) + [entry]
+        return {"chart_config": chart, "chat_history": history, "insight_memory": memory,
+                "memory_index": len(memory) - 1, "prompts": prompts, "errors": errors}
 
     return output

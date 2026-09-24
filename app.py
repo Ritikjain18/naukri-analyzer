@@ -40,6 +40,27 @@ shared = st.session_state.setdefault("shared", {})
 messages = st.session_state.setdefault("messages", [])
 
 
+def run_turn(question: str, **extra) -> None:
+    try:
+        for llm in llms:
+            llm.reset()
+        with st.spinner("Analysing..."):
+            result = graph.invoke(new_turn(shared, question, **extra), config={"recursion_limit": 60})
+        shared.update({k: result[k] for k in PERSISTED if k in result})
+        keep = not result.get("degraded") and not result.get("guard_rejected")
+        messages.append({
+            "role": "assistant", "question": question, "insight": result["insight"].model_dump(),
+            "chart": result.get("chart_config"), "slice": result["data_slice"],
+            "prompts": result["prompts"], "errors": result.get("errors", []),
+            "memory_index": result.get("memory_index") if keep else None,
+            "judge_scores": result.get("judge_scores", []), "degraded": bool(result.get("degraded")),
+            "models": sorted({mod for llm in llms for mod in llm.used_models()}),
+        })
+    except Exception as exc:
+        messages.append({"role": "assistant", "error": friendly_error(exc)})
+    st.rerun()
+
+
 def render_prompts(prompts):
     with st.expander("Prompts sent to Groq"):
         for p in prompts:
@@ -47,7 +68,29 @@ def render_prompts(prompts):
             st.code(p["prompt"], language="text")
 
 
-def render_assistant(m):
+def render_feedback(m, i) -> None:
+    idx = m.get("memory_index")
+    if idx is None:
+        return
+    entry = shared["insight_memory"][idx]
+    left, right = st.columns([1, 4])
+    with left:
+        if entry.get("approved"):
+            st.caption("✅ Approved")
+        elif st.button("Approve", key=f"approve_{i}"):
+            entry["approved"] = True
+            st.rerun()
+    with right:
+        note = st.text_input("Ask for a revision", key=f"note_{i}", label_visibility="collapsed",
+                             placeholder="Ask for a revision, e.g. focus on Mumbai")
+        if st.button("Revise", key=f"revise_{i}") and note.strip():
+            st.session_state["pending_revision"] = {
+                "question": m["question"], "slice": m["slice"], "note": note.strip(),
+                "finding": m["insight"]["finding"]}
+            st.rerun()
+
+
+def render_assistant(m, i):
     ins = m["insight"]
     st.markdown(f"**{ins['finding']}**")
     for e in ins["evidence"]:
@@ -59,9 +102,12 @@ def render_assistant(m):
         st.plotly_chart(build_figure(m["chart"], m["slice"]), width="stretch")
     for err in m["errors"]:
         st.caption(err)
+    if m.get("models"):
+        st.caption("Models: " + ", ".join(m["models"]))
     with st.expander("Data used"):
         st.dataframe(m["slice"])
     render_prompts(m["prompts"])
+    render_feedback(m, i)
 
 
 with st.sidebar:
@@ -84,32 +130,21 @@ with st.sidebar:
                 st.caption(p["node"])
                 st.code(p["prompt"], language="text")
 
-for m in messages:
+for i, m in enumerate(messages):
     with st.chat_message(m["role"]):
         if m["role"] == "user":
             st.write(m["content"])
         elif "error" in m:
             st.error(m["error"])
         else:
-            render_assistant(m)
+            render_assistant(m, i)
 
+pending = st.session_state.pop("pending_revision", None)
 question = st.chat_input("Ask about your talent data")
-if question:
+if pending:
+    messages.append({"role": "user", "content": f"Revise: {pending['note']}"})
+    run_turn(pending["question"], data_slice=pending["slice"],
+             revision_note=f"{pending['note']} (previous finding: {pending['finding']})")
+elif question:
     messages.append({"role": "user", "content": question})
-    with st.chat_message("user"):
-        st.write(question)
-    with st.chat_message("assistant"):
-        try:
-            with st.spinner("Analysing..."):
-                result = graph.invoke(new_turn(shared, question))
-            shared.update({k: result[k] for k in PERSISTED if k in result})
-            msg = {"role": "assistant", "insight": result["insight"].model_dump(),
-                   "chart": result.get("chart_config"), "slice": result["data_slice"],
-                   "prompts": result["prompts"], "errors": result.get("errors", []),
-                   "degraded": bool(result.get("degraded"))}
-            messages.append(msg)
-            render_assistant(msg)
-        except Exception as exc:
-            err = {"role": "assistant", "error": friendly_error(exc)}
-            messages.append(err)
-            st.error(err["error"])
+    run_turn(question)
