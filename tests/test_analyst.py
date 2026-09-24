@@ -1,0 +1,54 @@
+import json
+
+import pandas as pd
+import pytest
+
+from graph.nodes.analyst import AnalysisError, format_history, make_analyst_node
+from tests.fakes import FakeLLM
+
+GOOD = json.dumps({"finding": "Engineering converts best.", "evidence": ["Eng 20% vs Sales 10%"],
+                   "recommendation": "Shift budget to Engineering."})
+SLICE = pd.DataFrame({"category": ["Eng", "Sales"], "views": [100, 100], "applications": [20, 10]})
+
+
+def base_state(**over):
+    state = {"question": "which converts best?", "data_summary": "SUMMARY", "data_slice": SLICE,
+             "chat_history": [], "prompts": []}
+    state.update(over)
+    return state
+
+
+def test_format_history():
+    assert format_history([]) == "(none)"
+    text = format_history([{"question": "q1", "finding": "f1"}])
+    assert "Q: q1" in text and "A: f1" in text
+
+
+def test_analyst_happy_path_injects_context():
+    llm = FakeLLM([GOOD])
+    out = make_analyst_node(llm)(base_state(chat_history=[{"question": "old", "finding": "older"}]))
+    assert out["insight"].finding == "Engineering converts best."
+    prompt = llm.prompts[0]
+    assert "SUMMARY" in prompt and "category,views,applications" in prompt
+    assert "Job Posting Analytics" in prompt          # domain skill injected
+    assert "Q: old" in prompt
+    assert out["prompts"][-1]["node"] == "analyst"
+
+
+def test_analyst_retries_once_on_bad_json():
+    llm = FakeLLM(["not json", GOOD])
+    out = make_analyst_node(llm)(base_state())
+    assert out["insight"].recommendation.startswith("Shift")
+    assert "invalid" in llm.prompts[1].lower()
+
+
+def test_analyst_gives_up_after_second_failure():
+    with pytest.raises(AnalysisError):
+        make_analyst_node(FakeLLM(["bad", "worse"]))(base_state())
+
+
+def test_analyst_empty_slice_skips_llm():
+    llm = FakeLLM([])
+    out = make_analyst_node(llm)(base_state(data_slice=SLICE.iloc[0:0]))
+    assert "No data matched" in out["insight"].finding
+    assert llm.prompts == []
