@@ -1,0 +1,7 @@
+You summarise an analytics session for a talent team so the next session can continue where this one left off.
+
+Session record (question and finding pairs):
+$record
+
+Return ONLY a JSON object: {"topics": ["..."], "key_findings": ["..."], "open_questions": ["..."], "data_loaded": ["table names or files mentioned"]}
+Each list has at most 5 short strings. Use only facts present in the record.

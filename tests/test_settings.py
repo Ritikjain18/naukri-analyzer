@@ -85,8 +85,6 @@ def test_effective_version_ignores_override_without_file(monkeypatch, pdir):
 def test_required_vars_cover_real_prompt_files(tmp_path):
     real = PromptSettings(AppDB(tmp_path / "a.db"))
     for name, needed in REQUIRED_VARS.items():
-        if name == "session_summary":
-            pytest.skip("session_summary.v1 arrives in Task 7")
         assert real.compatible_versions(name), f"no compatible version for {name}"
         assert needed
 
