@@ -18,7 +18,7 @@ from graph.prompts import render
 from graph.textsafe import safe_text
 
 log = logging.getLogger(__name__)
-_CONTROL = re.compile(r"[\x00-\x08\x0b-\x1f\x7f]")
+_CONTROL = re.compile("[\x00-\x08\x0b-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 
 SUMMARY_KEYS = ("topics", "key_findings", "open_questions", "data_loaded")
 ITEM_CHARS, MAX_ITEMS = 200, 5
@@ -32,7 +32,7 @@ def _flat(text) -> str:
 
 def _clean(text) -> str:
     """Whitespace-collapse, redact secrets, then clamp (redact first so a cut never leaves a partial secret)."""
-    return redact_text(_flat(text))[:ITEM_CHARS]
+    return redact_text(_flat(_CONTROL.sub("", str(text))))[:ITEM_CHARS]
 
 
 def _items(value) -> list[str]:
@@ -109,8 +109,9 @@ class MemoryService:
             return "summarised" if row and row["summarised"] == DONE else "in_progress"
         try:
             entries = self.sessions.entries_for(session_id)
-            if not entries:
-                self._release(session_id)
+            if not entries:                                    # nothing to summarise (e.g. only guard-rejected questions)
+                self.sessions.mark_summarised(session_id)
+                self.db.execute("UPDATE sessions SET claimed_at = NULL WHERE id = ?", (session_id,))
                 return "skipped"
             summary = summarise_session(self.llm, entries)
             if summary is None:
@@ -138,13 +139,16 @@ class MemoryService:
     def summarise_pending(self, user_id: int) -> int:
         done = 0
         self._reset_stale_claims(user_id)
-        for sid in self.sessions.pending_for_user(user_id, config.ABANDONED_SESSION_MINUTES):
+        for sid in self.sessions.pending_for_user(user_id, config.ABANDONED_SESSION_MINUTES)[:config.MAX_SUMMARIES_PER_LOGIN]:
             try:
-                if self._summarise(sid, user_id) == "summarised":
-                    done += 1
-            except Exception as exc:  # one bad session must not block the others
+                outcome = self._summarise(sid, user_id)
+            except Exception as exc:  # do not keep hammering a failing LLM at login
                 log.warning("summary failed for session %s: %s", sid, type(exc).__name__)   # no message: may hold secrets
-                continue
+                break
+            if outcome == "summarised":
+                done += 1
+            elif outcome == "deferred":
+                break
         return done
 
     def summaries_for(self, user_id: int, limit: int) -> list[dict]:

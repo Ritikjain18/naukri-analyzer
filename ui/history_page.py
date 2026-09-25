@@ -6,10 +6,9 @@ import streamlit as st
 
 import export.deck as deck
 from accounts.permissions import can
-from graph.llm import friendly_error
 from graph.textsafe import safe_text
 from graph.viz import build_figure
-from ui.analyze import audit_export
+from ui.analyze import audit_export, deck_failure_message
 from ui.permissions_ui import guard
 
 logger = logging.getLogger(__name__)
@@ -68,7 +67,7 @@ def _render_export(ctx, rows: list[dict]) -> None:
     try:
         data = deck.build_deck(chosen)
     except Exception as exc:
-        st.warning("Could not build the slide deck: " + friendly_error(exc))
+        st.warning(deck_failure_message(exc))
         return
     st.download_button("Export selected as slide deck", data=data, file_name="naukri_history_insights.pptx",
                        mime=PPTX_MIME, on_click=audit_export, args=(ctx, len(chosen), "history"))
@@ -78,7 +77,8 @@ def _history_tab(ctx) -> None:
     users = ctx.services.auth.list_users()
     by_name = {u.username: u.id for u in users}
     c1, c2, c3, c4 = st.columns(4)
-    who = c1.selectbox("User", ["All", *by_name], key="hist_user")
+    who = c1.selectbox("User", [None, *by_name], format_func=lambda n: "All users" if n is None else n,
+                       key="hist_user")
     since = _bound(c2.date_input("From", value=None, key="hist_from"), False)
     until = _bound(c3.date_input("To", value=None, key="hist_to"), True)
     text = c4.text_input("Question contains", key="hist_text")
@@ -111,13 +111,13 @@ def _comparative_tab(ctx) -> None:
     for col, v in zip(st.columns(len(shown)), shown):
         ins = v["insight"]
         with col:
-            st.caption(f"{v['ts_utc'][:16]} | {safe_text(v['username'])} | session {v['session_id'][:8]}")
+            st.caption(f"{v['ts_utc'][:16]} | {safe_text(v['username'])} | session {(v.get('session_id') or '')[:8]}")
             st.markdown(f"**{safe_text(ins.get('finding', ''))}**")
             for e in ins.get("evidence", []):
                 st.markdown(f"- {safe_text(e)}")
             st.markdown(f"*Recommendation:* {safe_text(ins.get('recommendation', ''))}")
     st.dataframe(pd.DataFrame(
-        [{"when": v["ts_utc"][:16], "user": v["username"], "session": v["session_id"][:8],
+        [{"when": v["ts_utc"][:16], "user": v["username"], "session": (v.get("session_id") or "")[:8],
           "finding": v["insight"].get("finding", ""), "recommendation": v["insight"].get("recommendation", "")}
          for v in versions]), hide_index=True)
 

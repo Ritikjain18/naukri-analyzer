@@ -2,7 +2,7 @@ import logging
 
 import streamlit as st
 
-from accounts.auth import USERNAME_RE, AccountError
+from accounts.auth import AccountError
 
 log = logging.getLogger(__name__)
 PASSWORD_KEYS = ("login_password", "bootstrap_password", "bootstrap_confirm", "pw_old", "pw_new")
@@ -34,7 +34,7 @@ def revoke_session(services, auth: dict, reason: str) -> None:
             services.memory.end_session(sid, auth["user_id"])
     except Exception as exc:
         log.warning("end_session failed on revoke: %s", type(exc).__name__)
-    services.audit.record(user, "session_revoked", session_id=sid, reason=reason)
+    services.audit.record(user, "session_revoked", session_id=sid, reason=reason)     # fail-closed by design
     _reset_state()
     flash("warning", REVOKED_MESSAGE)
 
@@ -62,11 +62,20 @@ def begin_session(services, auth: dict, summarise: bool = False) -> None:
         shared["prior_context"] = ""
 
 
+def _audit_quietly(audit, user, action: str, **detail) -> None:
+    """Audit write that must not block login/logout; logs only the exception type."""
+    try:
+        audit.record(user, action, **detail)
+    except Exception as exc:
+        log.warning("audit %s failed: %s", action, type(exc).__name__)
+
+
 def _log_in(services, user) -> None:
     auth = {"user_id": user.id, "username": user.username, "role": user.role}
     st.session_state["auth"] = auth
     begin_session(services, auth, summarise=True)
-    services.audit.record({"id": user.id, "username": user.username}, "login", session_id=st.session_state["session_id"])
+    _audit_quietly(services.audit, {"id": user.id, "username": user.username}, "login",
+                   session_id=st.session_state["session_id"])
     _clear_passwords()
     st.rerun()
 
@@ -103,7 +112,12 @@ def render_login(services) -> None:
         _log_in(services, result.user)
         return
     name = username.strip()
-    tried = {"username_tried": name if USERNAME_RE.match(name) else "[invalid]"}
+    known = False
+    try:
+        known = bool(name) and services.auth.get_by_username(name) is not None
+    except Exception:
+        pass
+    tried = {"username_tried": name if known else "[unknown]"}
     if result.newly_locked:
         services.audit.record(None, "account_locked", **tried)
         st.error("Too many failed attempts. Try again later.")
@@ -118,9 +132,9 @@ def _finish_session(ctx, action: str) -> None:
     except Exception as exc:
         log.warning("end_session failed: %s", type(exc).__name__)
         flash("warning", SUMMARY_WARNING)
-    ctx.services.audit.record(ctx.user, "session_end", session_id=ctx.session_id)
+    _audit_quietly(ctx.services.audit, ctx.user, "session_end", session_id=ctx.session_id)
     if action == "logout":
-        ctx.services.audit.record(ctx.user, "logout", session_id=ctx.session_id)
+        _audit_quietly(ctx.services.audit, ctx.user, "logout", session_id=ctx.session_id)
 
 
 def _reset_state() -> None:

@@ -37,7 +37,10 @@ CREDENTIAL_PATTERN = re.compile(
 
 # Bearer/Basic auth: scheme matched case-insensitively, original spelling kept in the output.
 BEARER_PATTERN = re.compile(r'(?i)(bearer)\s+[A-Za-z0-9._-]{16,}')
-BASIC_PATTERN = re.compile(r'(?i)(basic)\s+[A-Za-z0-9+/=]{12,}')
+# Basic: redacted after an `authorization:` prefix, or when the token has base64 shape (>= 16 chars with a
+# digit, + / or =); plain HR prose such as "basic qualifications" is left alone.
+BASIC_AUTH_PATTERN = re.compile(r'(?i)(\bauthorization\s*[:=]\s*basic)\s+[A-Za-z0-9+/=]{12,}')
+BASIC_PATTERN = re.compile(r'(?i)(\bbasic)\s+(?=[A-Za-z0-9+/=]*[0-9+/=])[A-Za-z0-9+/=]{16,}')
 
 # Secret key pattern for dicts
 SECRET_KEY = re.compile(r"pass|secret|token|api_?key|hash", re.I)
@@ -70,6 +73,7 @@ def redact_text(text: str) -> str:
     text = BEARER_PATTERN.sub(r'\1 ' + REDACTED, text)
 
     # Redact Basic auth
+    text = BASIC_AUTH_PATTERN.sub(r'\1 ' + REDACTED, text)
     text = BASIC_PATTERN.sub(r'\1 ' + REDACTED, text)
 
     return text

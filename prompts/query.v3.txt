@@ -9,6 +9,8 @@ $skill
 Recent conversation:
 $history
 
+$prior_context
+
 Data slice (CSV):
 $slice
 
@@ -18,7 +20,6 @@ Return ONLY a JSON object with these keys:
 "finding": one-sentence key finding,
 "evidence": array of 1-4 short strings, each citing specific numbers from the slice,
 "recommendation": one specific, actionable recommendation.
-$prior_context
 $revision_note
 $judge_correction
 $guard_error

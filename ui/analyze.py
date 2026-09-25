@@ -29,6 +29,15 @@ def _safely(step) -> bool:
         return False
 
 
+def deck_failure_message(exc: Exception) -> str:
+    """Warning text for a failed deck build: fixed mapped messages only; unmapped exception text is never shown."""
+    logger.warning("Deck build failed: %s", type(exc).__name__)
+    friendly = friendly_error(exc)
+    if friendly.startswith("Something went wrong"):
+        return "Could not build the slide deck."
+    return "Could not build the slide deck: " + safe_text(friendly)
+
+
 def record_turn(ctx, m, result, question: str, action: str) -> bool:
     """Audit, history and session bookkeeping for a finished turn. Returns False if any write failed."""
     s, user, sid = ctx.services, ctx.user, ctx.session_id
@@ -119,12 +128,10 @@ def render_feedback(ctx, m, i) -> None:
             hid = m.get("history_id")
             svc = ctx.services
 
-            def record():
-                if hid is not None:
-                    svc.history.mark_approved(hid)
-                svc.audit.record(ctx.user, "approve", session_id=ctx.session_id, history_id=hid)
-
-            if not _safely(record):
+            ok_mark = _safely(lambda: svc.history.mark_approved(hid)) if hid is not None else True
+            ok_audit = _safely(lambda: svc.audit.record(ctx.user, "approve", session_id=ctx.session_id,
+                                                        history_id=hid))
+            if not (ok_mark and ok_audit):
                 flash("warning", RECORD_WARNING)
             st.rerun()
     with right:
@@ -196,7 +203,7 @@ def render_analyze(ctx) -> None:
                 try:
                     deck_bytes = deck.build_deck(chosen)
                 except Exception as exc:
-                    st.warning("Could not build the slide deck: " + friendly_error(exc))
+                    st.warning(deck_failure_message(exc))
                 else:
                     st.download_button("Export slide deck", data=deck_bytes, file_name="naukri_insights.pptx",
                                        mime="application/vnd.openxmlformats-officedocument.presentationml.presentation",

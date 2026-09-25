@@ -12,10 +12,10 @@ log = logging.getLogger(__name__)
 
 REQUIRED_VARS = {
     "data_understanding": {"skills", "schema", "sample"},
-    "orchestrator": {"schema", "summary", "history", "question"},
+    "orchestrator": {"schema", "summary", "history", "question", "prior_context"},
     "sql": {"schema", "limit", "history", "question", "correction", "error_note"},
     "query": {"summary", "skill", "history", "slice", "question", "error_note",
-              "guard_error", "judge_correction", "revision_note"},
+              "guard_error", "judge_correction", "revision_note", "prior_context"},
     "judge": {"stage", "question", "output"},
     "visualization": {"insight", "columns", "error_note"},
     "session_summary": {"record"},

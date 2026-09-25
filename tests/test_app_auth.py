@@ -109,8 +109,8 @@ def test_username_tried_never_stores_a_typed_password(monkeypatch, tmp_path):
         at.button(key="login_submit").click().run(timeout=60)
     rows = AppDB(tmp_path / "app.db").query("SELECT detail_json FROM audit_log ORDER BY id")
     assert "secret" not in "".join(r["detail_json"] for r in rows)
-    assert '"username_tried": "[invalid]"' in rows[0]["detail_json"]
-    assert '"username_tried": "ghost"' in rows[1]["detail_json"]
+    assert '"username_tried": "[unknown]"' in rows[0]["detail_json"]
+    assert '"username_tried": "[unknown]"' in rows[1]["detail_json"]      # only existing accounts are stored (see test_final_fixes)
 
 
 def test_unknown_and_disabled_users_get_the_generic_message(monkeypatch, tmp_path):

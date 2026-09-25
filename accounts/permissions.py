@@ -5,7 +5,7 @@ PERMISSIONS = {"analyst": ANALYST, "manager": MANAGER, "admin": ADMIN}
 ROLES = tuple(PERMISSIONS)
 
 
-class PermissionDenied(PermissionError):
+class PermissionDenied(Exception):
     pass
 
 
