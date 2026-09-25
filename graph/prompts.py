@@ -4,6 +4,9 @@ from string import Template
 from config import ROOT
 
 PROMPTS_DIR = ROOT / "prompts"
+# The version each node requests when no override is active (single source of truth).
+DEFAULT_VERSIONS = {"data_understanding": "v1", "orchestrator": "v2", "sql": "v3", "query": "v3", "judge": "v1",
+                    "visualization": "v1", "session_summary": "v1", "pandas": "v1"}
 _OVERRIDES: dict[str, str] = {}
 _REQUIRED: dict[str, set[str]] = {}
 _PLACEHOLDER = re.compile(r"\$([A-Za-z_][A-Za-z0-9_]*)|\$\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -42,7 +45,8 @@ def load_prompt(name: str, version: str = "v1") -> str:
     return (PROMPTS_DIR / f"{name}.{version}.txt").read_text()
 
 
-def render(name: str, version: str = "v1", **values) -> str:
+def render(name: str, version: str | None = None, **values) -> str:
+    version = version or DEFAULT_VERSIONS.get(name, "v1")
     return Template(load_prompt(name, effective_version(name, version))).safe_substitute(
         {k: str(v) for k, v in values.items()}
     )

@@ -6,7 +6,8 @@ from accounts.auth import USERNAME_RE, AccountError
 
 log = logging.getLogger(__name__)
 PASSWORD_KEYS = ("login_password", "bootstrap_password", "bootstrap_confirm", "pw_old", "pw_new")
-SESSION_KEYS = ("auth", "session_id", "shared", "messages", "pending_revision", "ingest_prompts", "history_viewed")
+SESSION_KEYS = ("auth", "session_id", "shared", "messages", "pending_revision", "ingest_prompts", "history_viewed",
+                "admin_flash", "admin_clear")
 
 
 SUMMARY_WARNING = "Could not save the session summary (it will be retried later)."

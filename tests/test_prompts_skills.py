@@ -18,7 +18,7 @@ VARS = {
 
 @pytest.mark.parametrize("name", VARS)
 def test_every_prompt_renders_fully(name):
-    out = render(name, **VARS[name])
+    out = render(name, "v1", **VARS[name])
     assert not re.search(r"\$[A-Za-z_]+", out)
 
 

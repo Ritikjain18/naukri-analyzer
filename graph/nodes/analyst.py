@@ -52,7 +52,7 @@ def make_analyst_node(llm):
                     if state.get("revision_note") else "",
                     prior_context=prior_context_block(state))
         worst_note = ERROR_NOTE.format(detail="x" * ERROR_DETAIL_MAX)  # reserve the retry note
-        overhead = count_tokens(render("query", "v3", slice="", error_note=worst_note, **base))
+        overhead = count_tokens(render("query", slice="", error_note=worst_note, **base))
         error_note = ""
         manager = getattr(llm, "manager", None)
         for _ in range(2):
@@ -60,7 +60,7 @@ def make_analyst_node(llm):
             # minute). Recomputed per attempt so a second attempt's slice shrinks after a full-size first call.
             used = manager.used_last_minute(MODEL_SMART) if manager else 0
             slice_text = fit_rows(data_slice, slice_budget(MODEL_SMART, overhead, used))
-            prompt = render("query", "v3", slice=slice_text, error_note=error_note, **base)
+            prompt = render("query", slice=slice_text, error_note=error_note, **base)
             prompts.append({"node": "analyst", "prompt": prompt})
             try:
                 insight = Insight(**extract_json(llm.invoke(prompt).content))

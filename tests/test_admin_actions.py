@@ -92,7 +92,7 @@ def test_own_role_change_notes_next_run(env):
     services, admin, _, aid, _ = env
     services.auth.create_user("root2", "root2 password 1", "admin")
     msg = admin_page.admin_set_role(admin, aid, "manager")
-    assert msg.ok and "next run" in msg
+    assert msg.ok and "already in effect" in msg and "next run" not in msg
 
 
 def test_reset_password_audit_has_no_secret(env):
@@ -147,3 +147,33 @@ def test_audit_failure_does_not_break_helper(env, monkeypatch):
 
     monkeypatch.setattr(type(services.audit), "record", boom)
     assert admin_page.admin_create_user(admin, "dave", "dave password 1", "analyst").ok
+
+
+def test_default_versions_pin_the_versions_nodes_request(monkeypatch):
+    import ast
+    from pathlib import Path
+
+    root = Path(prompts.__file__).resolve().parent.parent
+    seen = {}
+    for path in [*root.glob("graph/**/*.py"), *root.glob("accounts/*.py")]:
+        for node in ast.walk(ast.parse(path.read_text())):
+            if (isinstance(node, ast.Call) and getattr(node.func, "id", "") == "render" and node.args
+                    and isinstance(node.args[0], ast.Constant)):
+                version = node.args[1].value if len(node.args) > 1 else None
+                seen.setdefault(node.args[0].value, set()).add(version)
+    assert {"sql", "query", "orchestrator", "judge", "visualization", "data_understanding", "session_summary"} <= set(seen)
+    for name, versions in seen.items():
+        assert versions <= {None, prompts.DEFAULT_VERSIONS[name]}, name
+    loaded = []
+    monkeypatch.setattr(prompts, "load_prompt", lambda n, v="v1": loaded.append((n, v)) or "")
+    prompts.set_overrides({})
+    for name, version in prompts.DEFAULT_VERSIONS.items():
+        prompts.render(name)
+    assert dict(loaded) == prompts.DEFAULT_VERSIONS
+
+
+def test_audit_failure_flags_the_context(env, monkeypatch):
+    services, admin, _, _, mid = env
+    monkeypatch.setattr(type(services.audit), "record", lambda *a, **k: 1 / 0)
+    out = admin_page._run(admin, "manage_users", admin_page.admin_reset_password, mid, "brand new pass 1")
+    assert out.ok and out.audit_failed

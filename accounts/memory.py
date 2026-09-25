@@ -62,7 +62,7 @@ def _fallback(entries: list[dict]) -> dict:
 
 def summarise_session(llm, entries: list[dict]):
     record = "\n".join(f"Q: {_flat(e['question'])}\nA: {_flat(e['insight']['finding'])}" for e in entries[:20])
-    prompt = render("session_summary", "v1", record=redact_text(record))
+    prompt = render("session_summary", record=redact_text(record))
     try:
         raw = llm.invoke(prompt).content
     except Exception as exc:

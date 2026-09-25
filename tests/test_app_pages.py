@@ -365,3 +365,78 @@ def test_admin_cannot_disable_own_account_in_ui(monkeypatch, tmp_path):
     at.button(key=f"toggle_active_{uid}").click().run(timeout=60)
     assert not at.exception
     assert any("cannot disable your own account" in e.value for e in at.error)
+
+
+def test_prompt_default_preview_shows_the_real_default_version(monkeypatch, tmp_path):
+    from graph import prompts
+
+    try:
+        at = start_app(monkeypatch, tmp_path, role="admin")
+        at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+        assert not at.exception
+        text = (config.ROOT / "prompts" / "sql.v3.txt").read_text()
+        assert any(c.value.strip() == text.strip() for c in at.code)
+        assert any("default = v3 (the version chosen in code)" in c.value for c in at.caption)
+        assert any(e.label.startswith("sql (active: default") and "v3" in e.label for e in at.expander)
+    finally:
+        prompts.set_overrides({})
+
+
+def test_single_action_when_rerun_does_not_raise(monkeypatch, tmp_path):
+    from graph import prompts
+
+    monkeypatch.setattr(config, "JUDGE_MIN_SCORE", config.JUDGE_MIN_SCORE)
+    monkeypatch.setattr(st, "rerun", lambda *a, **k: None)
+    try:
+        at = start_app(monkeypatch, tmp_path, role="admin")
+        at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+        at.selectbox(key="prompt_sql").set_value("v2")
+        at.button(key="prompt_apply_sql").click().run(timeout=60)
+        at.selectbox(key="prompt_sql").set_value("default")
+        at.button(key="prompt_apply_sql").click().run(timeout=60)
+        assert not at.exception and "sql" not in prompts.get_overrides()
+        acts = [r["detail_json"] for r in rows(tmp_path) if r["action"] == "prompt_version_changed"]
+        assert len(acts) == 2 and '"version": "default"' in acts[1]
+        assert at.session_state["admin_flash"] == (True, "sql now uses the default version.", False)
+        at.button(key="cfg_save").click().run(timeout=60)
+        assert [r["action"] for r in rows(tmp_path)].count("config_changed") == 0
+        assert at.session_state["admin_flash"] == (True, "No changes.", False)
+        at.number_input(key="cfg_JUDGE_MIN_SCORE").set_value(4)
+        at.button(key="cfg_save").click().run(timeout=60)
+        assert [r["action"] for r in rows(tmp_path)].count("config_changed") == 1
+    finally:
+        prompts.set_overrides({})
+
+
+def test_flash_is_cleared_when_admin_is_refused_and_on_logout(monkeypatch, tmp_path):
+    import ui.router as router
+    from ui.auth_ui import SESSION_KEYS
+
+    assert "admin_flash" in SESSION_KEYS and "admin_clear" in SESSION_KEYS
+    monkeypatch.setattr(router, "allowed_pages", lambda role: ["Analyze", "History", "Admin"])
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.session_state["admin_flash"] = (True, "stale")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    assert "admin_flash" not in at.session_state
+
+
+def test_audit_failure_after_change_shows_warning(monkeypatch, tmp_path):
+    from accounts.audit import AuditLog
+
+    at = start_app(monkeypatch, tmp_path, role="admin")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    orig = AuditLog.record
+
+    def boom(self, user, action, /, session_id=None, **detail):
+        if action == "user_created":
+            raise RuntimeError("SECRET db down")
+        return orig(self, user, action, session_id=session_id, **detail)
+
+    monkeypatch.setattr(AuditLog, "record", boom)
+    at.text_input(key="new_username").set_value("carol")
+    at.text_input(key="new_password").set_value("carol password 1")
+    at.button(key="create_user").click().run(timeout=60)
+    assert not at.exception
+    assert any("Created user carol" in s.value for s in at.success)
+    assert any(w.value == "The change was applied, but the audit record could not be written." for w in at.warning)
+    assert not any("SECRET" in w.value for w in at.warning)

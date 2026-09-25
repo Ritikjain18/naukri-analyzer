@@ -11,6 +11,7 @@ from accounts.auth import AccountError
 from accounts.memory import write_project_memory
 from accounts.permissions import ROLES, PermissionDenied, can, require
 from accounts.settings import AppSettings
+from graph.prompts import DEFAULT_VERSIONS
 from graph.textsafe import safe_text
 from ui.analyze import audit_export
 from ui.permissions_ui import guard
@@ -30,6 +31,7 @@ class Outcome(str):
     """A status message that also says whether the action succeeded."""
 
     ok: bool
+    audit_failed = False
 
     def __new__(cls, text: str, ok: bool):
         obj = super().__new__(cls, text)
@@ -51,6 +53,7 @@ def _audit(ctx, action: str, **detail) -> None:
         ctx.services.audit.record(ctx.user, action, session_id=ctx.session_id, **detail)
     except Exception as exc:
         logger.warning("Admin audit write failed: %s", type(exc).__name__)
+        ctx.audit_failed = True
 
 
 def _target(ctx, user_id: int):
@@ -82,7 +85,7 @@ def admin_set_role(ctx, user_id: int, role: str) -> Outcome:
         return _fail(str(exc))
     _audit(ctx, "user_updated", target_id=user_id, target_username=target.username, field="role",
            old=target.role, new=role)
-    note = " The change applies on your next run." if user_id == ctx.user["id"] else ""
+    note = " Your role was changed; it is already in effect." if user_id == ctx.user["id"] else ""
     return _ok(f"{target.username} is now {role}.{note}")
 
 
@@ -169,8 +172,12 @@ def admin_write_memory(ctx) -> Path:
 
 def _run(ctx, permission: str, fn, *args):
     """Run a helper; PermissionDenied and unexpected errors become messages (denials are audited)."""
+    ctx.audit_failed = False
     try:
-        return fn(ctx, *args)
+        outcome = fn(ctx, *args)
+        if ctx.audit_failed and getattr(outcome, "ok", False):
+            outcome.audit_failed = True
+        return outcome
     except PermissionDenied as exc:
         _audit(ctx, f"denied:{permission}")
         return _fail(str(exc))
@@ -181,7 +188,8 @@ def _run(ctx, permission: str, fn, *args):
 
 def _finish(outcome, clear: tuple = ()) -> None:
     """Remember the message (and inputs to clear), then rerun so every table shows the new state."""
-    st.session_state["admin_flash"] = (bool(getattr(outcome, "ok", False)), str(outcome))
+    st.session_state["admin_flash"] = (bool(getattr(outcome, "ok", False)), str(outcome),
+                                       bool(getattr(outcome, "audit_failed", False)))
     st.session_state["admin_clear"] = list(clear)
     st.rerun()
 
@@ -192,6 +200,8 @@ def _show_flash() -> None:
     flash = st.session_state.pop("admin_flash", None)
     if flash:
         (st.success if flash[0] else st.error)(safe_text(flash[1]))
+        if len(flash) > 2 and flash[2]:
+            st.warning("The change was applied, but the audit record could not be written.")
 
 
 def _bound(d, end: bool):
@@ -233,7 +243,7 @@ def _users_tab(ctx) -> None:
 
 def _prompt_text(ctx, name: str, version: str) -> str:
     """Read only a validated (name, version) pair from the prompts directory."""
-    version = "v1" if version == "default" else version
+    version = DEFAULT_VERSIONS.get(name, "v1") if version == "default" else version
     if name not in ctx.services.prompts.names() or version not in ctx.services.prompts.versions(name):
         return ""
     try:
@@ -249,15 +259,20 @@ def _prompts_tab(ctx) -> None:
     for name in ctx.services.prompts.names():
         options = ["default"] + ctx.services.prompts.compatible_versions(name)
         active = ctx.services.prompts.active(name)
-        with st.expander(f"{name} (active: {safe_text(active or 'default')})"):
+        default = DEFAULT_VERSIONS.get(name, "v1")
+        shown = f"{active} (override)" if active else f"default ({default})"
+        with st.expander(f"{name} (active: {safe_text(shown)})"):
             choice = st.selectbox("Version", options, index=options.index(active) if active in options else 0,
                                   key=f"prompt_{name}")
+            if choice == "default":
+                st.caption(f"default = {default} (the version chosen in code)")
             st.code(_prompt_text(ctx, name, choice) or "(no file)", language=None)
             a, b = st.columns(2)
             if a.button("Apply", key=f"prompt_apply_{name}"):
                 if choice == "default":
                     _finish(_run(ctx, "manage_prompts", admin_clear_prompt, name))
-                _finish(_run(ctx, "manage_prompts", admin_set_prompt, name, choice))
+                else:
+                    _finish(_run(ctx, "manage_prompts", admin_set_prompt, name, choice))
             if b.button("Use default", key=f"prompt_clear_{name}"):
                 _finish(_run(ctx, "manage_prompts", admin_clear_prompt, name))
 
@@ -275,10 +290,15 @@ def _config_tab(ctx) -> None:
     }
     if st.button("Save", key="cfg_save"):
         results = [_run(ctx, "manage_config", admin_set_config, k, v) for k, v in new.items() if v != current[k]]
+        failed = [r for r in results if not r.ok]
         if not results:
             _finish(_ok("No changes."))
-        failed = [r for r in results if not r.ok]
-        _finish(failed[0] if failed else _ok("; ".join(results)))
+        elif failed:
+            _finish(failed[0])
+        else:
+            merged = _ok("; ".join(results))
+            merged.audit_failed = any(r.audit_failed for r in results)
+            _finish(merged)
 
 
 def _audit_tab(ctx) -> None:
@@ -334,6 +354,8 @@ def render_admin(ctx) -> None:
             require(role, "manage_users")
         except PermissionDenied as exc:
             st.error(str(exc))
+            st.session_state.pop("admin_flash", None)
+            st.session_state.pop("admin_clear", None)
             _audit(ctx, "denied:manage_users")
         return
     _show_flash()
