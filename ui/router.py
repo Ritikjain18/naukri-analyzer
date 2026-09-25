@@ -1,7 +1,7 @@
 import streamlit as st
 
 from accounts.permissions import can
-from ui import analyze
+from ui import analyze, history_page
 
 ADMIN_PERMISSIONS = ("manage_users", "manage_prompts", "manage_config", "view_audit")
 
@@ -15,10 +15,6 @@ def allowed_pages(role) -> list[str]:
     return pages
 
 
-def render_history(ctx) -> None:
-    st.info("Coming soon")
-
-
 def render_admin(ctx) -> None:
     st.info("Coming soon")
 
@@ -29,6 +25,6 @@ def render_page(ctx, page: str) -> None:
     if page == "Analyze":
         analyze.render_analyze(ctx)
     elif page == "History":
-        render_history(ctx)
+        history_page.render_history(ctx)
     else:
         render_admin(ctx)

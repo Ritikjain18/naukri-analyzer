@@ -220,7 +220,7 @@ def test_manager_sees_analyze_and_history_only(monkeypatch, tmp_path):
     at = start_app(monkeypatch, tmp_path, role="manager")
     assert at.sidebar.radio(key="page").options == ["Analyze", "History"]
     at.sidebar.radio(key="page").set_value("History").run(timeout=60)
-    assert any("Coming soon" in i.value for i in at.info)
+    assert not at.exception and len(at.tabs) == 2   # the real History page, comparative tab included
 
 
 def test_bootstrap_unreachable_once_users_exist(monkeypatch, tmp_path):

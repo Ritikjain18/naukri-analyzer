@@ -5,6 +5,7 @@ from streamlit.testing.v1 import AppTest
 import config
 import graph.build_graph as bg
 from accounts.db import AppDB
+from accounts.history import InsightHistory
 from accounts.sessions import SessionTracker
 from tests.helpers import StubGraph, make_user, start_app
 
@@ -162,3 +163,121 @@ def test_export_audit_callback_records_count(tmp_path):
     row = services.audit.query(action="export")[0]
     assert row["username"] == "alice" and row["detail"]["insights"] == 2 and row["session_id"] == "s1"
     assert row["detail"]["source"] == "analyze"
+
+
+def seed_history(tmp_path, user_ids):
+    db = AppDB(tmp_path / "app.db")
+    hist, sess = InsightHistory(db), SessionTracker(db)
+    ins = lambda f: {"finding": f, "evidence": ["e1"], "recommendation": "r1"}
+    s1, s2 = sess.start(user_ids[0]), sess.start(user_ids[1])
+    hist.add(user_ids[0], s1, "Which category converts best?", ins("Eng leads in June."), None, [{"a": 1}])
+    hist.add(user_ids[1], s2, "which category converts BEST", ins("Sales leads in July."), None, [{"a": 2}])
+    hist.add(user_ids[1], s2, "Bounce by source?", ins("Organic bounces most."), None, [])
+    return s1, s2
+
+
+def test_analyst_has_only_the_analyze_page(monkeypatch, tmp_path):
+    at = start_app(monkeypatch, tmp_path, role="analyst")
+    assert at.sidebar.radio(key="page").options == ["Analyze"]
+
+
+def test_manager_sees_history_but_not_admin(monkeypatch, tmp_path):
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    assert at.sidebar.radio(key="page").options == ["Analyze", "History"]
+
+
+def test_history_lists_all_users_and_filters(monkeypatch, tmp_path):
+    a = make_user(tmp_path, "analyst", username="alice")
+    b = make_user(tmp_path, "analyst", username="bob")
+    seed_history(tmp_path, [a["user_id"], b["user_id"]])
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    assert not at.exception
+    df = at.dataframe[0].value
+    assert len(df) == 3 and set(df["user"]) == {"alice", "bob"}
+    at.text_input(key="hist_text").set_value("bounce").run(timeout=60)
+    assert len(at.dataframe[0].value) == 1
+    at.text_input(key="hist_text").set_value("")
+    at.selectbox(key="hist_user").set_value("alice").run(timeout=60)
+    assert set(at.dataframe[0].value["user"]) == {"alice"}
+    assert "history_view" in [r["action"] for r in rows(tmp_path)]
+
+
+def test_history_view_is_audited_once_per_session(monkeypatch, tmp_path):
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    at.text_input(key="hist_text").set_value("x").run(timeout=60)
+    assert [r["action"] for r in rows(tmp_path)].count("history_view") == 1
+
+
+def test_comparative_report_shows_same_question_across_sessions(monkeypatch, tmp_path):
+    a = make_user(tmp_path, "analyst", username="alice")
+    b = make_user(tmp_path, "analyst", username="bob")
+    seed_history(tmp_path, [a["user_id"], b["user_id"]])
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    assert not at.exception
+    options = at.selectbox(key="cmp_question").options
+    assert len(options) == 1 and "2 sessions" in options[0] and "Bounce" not in options[0]
+    page_text = " ".join(m.value for m in at.markdown)
+    assert "Eng leads in June." in page_text and "Sales leads in July." in page_text
+
+
+def test_history_is_refused_even_if_the_router_offered_it(monkeypatch, tmp_path):
+    import ui.router as router
+
+    monkeypatch.setattr(router, "allowed_pages", lambda role: ["Analyze", "History", "Admin"])
+    at = start_app(monkeypatch, tmp_path, role="analyst")
+    at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    assert not at.exception
+    assert any("does not allow" in e.value for e in at.error)
+    assert len(at.dataframe) == 0                                  # nothing sensitive rendered
+    assert "denied:view_history" in [r["action"] for r in rows(tmp_path)]
+
+
+def test_history_rows_feed_the_deck_builder(tmp_path):
+    from io import BytesIO
+
+    from pptx import Presentation
+
+    from export.deck import build_deck
+
+    user = make_user(tmp_path, "analyst", username="alice")
+    db = AppDB(tmp_path / "app.db")
+    InsightHistory(db).add(user["user_id"], "s", "q one two",
+                           {"finding": "Eng leads conversion.", "evidence": ["e"], "recommendation": "r"},
+                           None, [{"a": 1}])
+    entries = InsightHistory(db).list()
+    assert len(Presentation(BytesIO(build_deck(entries))).slides) == 1
+
+
+def test_history_deck_export_builds_and_audits(monkeypatch, tmp_path):
+    a = make_user(tmp_path, "analyst", username="alice")
+    b = make_user(tmp_path, "analyst", username="bob")
+    seed_history(tmp_path, [a["user_id"], b["user_id"]])
+    import export.deck as deck
+
+    seen = []
+    monkeypatch.setattr(deck, "build_deck", lambda entries: seen.append(len(entries)) or b"PK")
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    pick = at.multiselect(key="hist_deck_pick")
+    pick.set_value(pick.options[:2]).run(timeout=60)
+    assert not at.exception and seen and seen[-1] == 2
+
+
+def test_history_deck_failure_shows_friendly_warning(monkeypatch, tmp_path):
+    a = make_user(tmp_path, "analyst", username="alice")
+    seed_history(tmp_path, [a["user_id"], a["user_id"]])
+    import export.deck as deck
+
+    def boom(entries):
+        raise RuntimeError("SECRET-INTERNAL request timed out")
+
+    monkeypatch.setattr(deck, "build_deck", boom)
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    pick = at.multiselect(key="hist_deck_pick")
+    pick.set_value(pick.options[:1]).run(timeout=60)
+    assert not at.exception
+    assert any("Could not build the slide deck" in w.value and "SECRET-INTERNAL" not in w.value for w in at.warning)
