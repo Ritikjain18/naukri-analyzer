@@ -28,3 +28,23 @@ def test_accounts_package_uses_only_the_standard_library_for_crypto_and_storage(
         src = f.read_text()
         for banned in ("bcrypt", "passlib", "argon2", "sqlalchemy", "streamlit_authenticator"):
             assert banned not in src, (f, banned)
+
+
+def test_streamlit_config_binds_to_localhost_only():
+    import tomllib
+    cfg = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text())
+    server = cfg["server"]
+    assert server["address"] == "127.0.0.1"
+    assert server.get("enableCORS") is not False
+    assert server.get("enableXsrfProtection") is not False
+
+
+def test_streamlit_config_is_not_gitignored():
+    for line in (ROOT / ".gitignore").read_text().splitlines():
+        line = line.strip().rstrip("/")
+        assert line not in (".streamlit", ".streamlit/config.toml", "*.toml", "config.toml"), line
+
+
+def test_readme_explains_localhost_binding_and_lan_opt_in():
+    text = (ROOT / "README.md").read_text()
+    assert "127.0.0.1" in text and "--server.address" in text

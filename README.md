@@ -9,7 +9,9 @@ Multi-agent HR analytics on Groq + LangGraph + Streamlit. Phases 1, 2 and 3a run
     pip install -r requirements.txt
     cp .env.example .env        # then put your Groq key in .env
     python -m data.seed         # optional; the app seeds an empty DB itself
-    streamlit run app.py        # serves on http://localhost:8501 by default
+    streamlit run app.py        # serves on http://localhost:8501 (127.0.0.1 only)
+
+The server binds to `127.0.0.1` (localhost) only, set in `.streamlit/config.toml` and picked up when you start it from the project root. Without this Streamlit listens on every network interface, and because there is no HTTPS and the first run offers a "create admin" form, anyone who could reach the port before the first admin exists could take over the app. To allow LAN access deliberately, run `streamlit run app.py --server.address 0.0.0.0`, only on a trusted network or behind a reverse proxy with HTTPS, and only after the first admin exists.
 
 The app is a local, single-machine app with user accounts (see Phase 3a below): all users share one local SQLite database, so uploaded tables are visible to everyone who can log in.
 
@@ -55,6 +57,7 @@ Every action is checked in code, not only hidden in the UI; a denied attempt is 
 **Storage.** Accounts, audit, history and summaries live in `data/app.db` (SQLite, created on first run); model usage stays in `data/usage.db`. Both are gitignored (`data/*.db`).
 
 **Limits.**
+- Network exposure: the server binds to `127.0.0.1` by default; passing `--server.address 0.0.0.0` exposes an app with no HTTPS to the network.
 - There is no HTTPS: run it on localhost or a trusted network and do not expose it to the internet.
 - Login is held in the browser session and is lost on refresh; log in again.
 - Uploaded tables are shared by all users.
