@@ -281,3 +281,87 @@ def test_history_deck_failure_shows_friendly_warning(monkeypatch, tmp_path):
     pick.set_value(pick.options[:1]).run(timeout=60)
     assert not at.exception
     assert any("Could not build the slide deck" in w.value and "SECRET-INTERNAL" not in w.value for w in at.warning)
+
+
+def test_admin_creates_a_user_who_can_log_in(monkeypatch, tmp_path):
+    from accounts.auth import AuthService
+
+    at = start_app(monkeypatch, tmp_path, role="admin")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    assert not at.exception
+    at.text_input(key="new_username").set_value("carol")
+    at.text_input(key="new_password").set_value("carol password 1")
+    at.selectbox(key="new_role").set_value("manager")
+    at.button(key="create_user").click().run(timeout=60)
+    assert not at.exception
+    db = AppDB(tmp_path / "app.db")
+    assert AuthService(db).authenticate("carol", "carol password 1").ok
+    created = db.query("SELECT detail_json FROM audit_log WHERE action = 'user_created'")[-1]["detail_json"]
+    assert "carol password 1" not in created and '"role": "manager"' in created
+    assert at.text_input(key="new_password").value == ""
+
+
+def test_manager_is_refused_on_the_admin_page_even_if_offered(monkeypatch, tmp_path):
+    import ui.router as router
+
+    monkeypatch.setattr(router, "allowed_pages", lambda role: ["Analyze", "History", "Admin"])
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    assert not at.exception
+    assert any("does not allow" in e.value for e in at.error)
+    assert not [t for t in at.text_input if t.key == "new_username"]
+    assert [r["action"] for r in rows(tmp_path)].count("denied:manage_users") == 1
+
+
+def test_admin_prompt_and_config_changes_apply_and_are_audited(monkeypatch, tmp_path):
+    from graph import prompts
+
+    monkeypatch.setattr(config, "JUDGE_MIN_SCORE", config.JUDGE_MIN_SCORE)      # restored at teardown
+    try:
+        at = start_app(monkeypatch, tmp_path, role="admin")
+        at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+        assert not at.exception
+        assert set(at.selectbox(key="prompt_sql").options) == {"default", "v2", "v3"}   # v1 lacks required variables
+        at.selectbox(key="prompt_sql").set_value("v2")
+        at.button(key="prompt_apply_sql").click().run(timeout=60)
+        assert prompts.get_overrides()["sql"] == "v2"
+        at.number_input(key="cfg_JUDGE_MIN_SCORE").set_value(4)
+        at.button(key="cfg_save").click().run(timeout=60)
+        assert not at.exception and config.JUDGE_MIN_SCORE == 4
+        actions = [r["action"] for r in rows(tmp_path)]
+        assert "prompt_version_changed" in actions and "config_changed" in actions
+    finally:
+        prompts.set_overrides({})
+
+
+def test_audit_tab_lists_actions_and_filters(monkeypatch, tmp_path):
+    at = start_app(monkeypatch, tmp_path, role="admin", question="Which category has the best conversion rate?")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    assert not at.exception
+
+    def audit_frame():
+        return [d.value for d in at.dataframe if "action" in d.value.columns][0]
+
+    assert {"question"} <= set(audit_frame()["action"])
+    at.selectbox(key="audit_action").set_value("question").run(timeout=60)
+    assert set(audit_frame()["action"]) == {"question"}
+
+
+def test_admin_memory_tab_writes_file_and_shows_it(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, "MEMORY_DIR", tmp_path / "mem")
+    at = start_app(monkeypatch, tmp_path, role="admin")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    at.button(key="write_memory").click().run(timeout=60)
+    assert not at.exception
+    assert (tmp_path / "mem" / "PROJECT_MEMORY.md").is_file() and not (tmp_path / "CLAUDE.md").exists()
+    assert any("# Project memory" in c.value for c in at.code)
+    assert "config_changed" in [r["action"] for r in rows(tmp_path)]
+
+
+def test_admin_cannot_disable_own_account_in_ui(monkeypatch, tmp_path):
+    at = start_app(monkeypatch, tmp_path, role="admin")
+    at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
+    uid = at.session_state["auth"]["user_id"]
+    at.button(key=f"toggle_active_{uid}").click().run(timeout=60)
+    assert not at.exception
+    assert any("cannot disable your own account" in e.value for e in at.error)

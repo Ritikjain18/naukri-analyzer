@@ -198,7 +198,8 @@ def test_pages_follow_role(monkeypatch, tmp_path):
     at = start_app(monkeypatch, tmp_path / "x", role="admin")
     assert at.sidebar.radio(key="page").options == ["Analyze", "History", "Admin"]
     at.sidebar.radio(key="page").set_value("Admin").run(timeout=60)
-    assert any("Coming soon" in i.value for i in at.info)
+    assert not at.exception
+    assert [t for t in at.text_input if t.key == "new_username"]
 
 
 def test_key_check_still_precedes_login(monkeypatch, tmp_path):
