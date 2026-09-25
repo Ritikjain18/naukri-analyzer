@@ -7,7 +7,7 @@ import streamlit as st
 import export.deck as deck
 from accounts.permissions import can
 from graph.textsafe import safe_text
-from graph.viz import build_figure
+from graph.viz import build_figure, validate_chart
 from ui.analyze import audit_export, deck_failure_message
 from ui.permissions_ui import guard
 
@@ -39,6 +39,22 @@ def _pick_label(row: dict) -> str:
     return f"{row['id']}. {str(row['insight'].get('finding') or '(no finding)')[:60]}"
 
 
+def chart_figure(chart, slice_records):
+    """Build a figure from a stored chart dict and list-of-records slice; None if it cannot be drawn."""
+    try:
+        if not isinstance(chart, dict) or not slice_records:
+            return None
+        df = pd.DataFrame(slice_records)
+        cfg = validate_chart(chart, df)
+        df = df.dropna(subset=[cfg.x, cfg.y])
+        if df.empty:
+            return None
+        return build_figure(cfg, df)
+    except Exception as exc:
+        logger.warning("History chart skipped: %s", type(exc).__name__)
+        return None
+
+
 def _render_row(row: dict) -> None:
     ins = row["insight"]
     with st.expander(f"#{row['id']} {safe_text(row['question'])[:80]}"):
@@ -47,11 +63,11 @@ def _render_row(row: dict) -> None:
             st.markdown(f"- {safe_text(e)}")
         st.markdown(f"*Recommendation:* {safe_text(ins.get('recommendation', ''))}")
         if row["chart"] is not None:
-            try:
-                st.plotly_chart(build_figure(row["chart"], row["slice"]), width="stretch")
-            except Exception as exc:
-                logger.warning("History chart failed: %s", type(exc).__name__)
-                st.caption("Chart could not be drawn.")
+            fig = chart_figure(row["chart"], row["slice"])
+            if fig is not None:
+                st.plotly_chart(fig, width="stretch")
+            else:
+                st.caption("Chart not available for this answer.")
         if row["slice"]:
             st.dataframe(pd.DataFrame(row["slice"]))
 

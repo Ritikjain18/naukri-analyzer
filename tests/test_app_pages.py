@@ -440,3 +440,59 @@ def test_audit_failure_after_change_shows_warning(monkeypatch, tmp_path):
     assert any("Created user carol" in s.value for s in at.success)
     assert any(w.value == "The change was applied, but the audit record could not be written." for w in at.warning)
     assert not any("SECRET" in w.value for w in at.warning)
+
+
+# ---- history charts (stored dict chart + list-of-records slice) ----
+
+import logging
+
+import plotly.graph_objects as go
+
+from ui.history_page import chart_figure
+
+_SLICE = [{"cat": "a", "n": 1}, {"cat": "b", "n": 3}]
+
+
+@pytest.mark.parametrize("kind", ["bar", "line", "pie", "scatter"])
+def test_chart_figure_builds_one_trace_for_each_type(kind):
+    fig = chart_figure({"type": kind, "x": "cat", "y": "n", "title": "T"}, _SLICE)
+    assert isinstance(fig, go.Figure) and len(fig.data) == 1
+
+
+@pytest.mark.parametrize("chart,data", [
+    ({"type": "bar", "x": "cat", "y": "n", "title": "T"}, []),
+    ({"type": "bar", "x": "nope", "y": "n", "title": "T"}, _SLICE),
+    ({"type": "donut", "x": "cat", "y": "n", "title": "T"}, _SLICE),
+    ({"type": "bar", "x": "cat"}, _SLICE),
+    ({"type": "bar", "x": "cat", "y": "cat", "title": "T"}, _SLICE),
+    ({"type": "bar", "x": "cat", "y": "n", "title": "T"}, [{"cat": "a", "n": None}, {"cat": None, "n": 2}]),
+    ("not a dict", _SLICE),
+    (None, _SLICE),
+    ({"type": "bar", "x": "cat", "y": "n", "title": "T"}, None),
+])
+def test_chart_figure_returns_none_for_unusable_input(chart, data):
+    assert chart_figure(chart, data) is None
+
+
+def test_chart_figure_drops_nan_rows_but_keeps_the_rest():
+    fig = chart_figure({"type": "bar", "x": "cat", "y": "n", "title": "T"},
+                       [{"cat": "a", "n": 1}, {"cat": "b", "n": None}])
+    assert fig is not None and list(fig.data[0].x) == ["a"]
+
+
+def test_history_page_renders_stored_charts_and_captions_bad_ones(monkeypatch, tmp_path, caplog):
+    a = make_user(tmp_path, "analyst", username="alice")
+    db = AppDB(tmp_path / "app.db")
+    hist, sess = InsightHistory(db), SessionTracker(db)
+    ins = {"finding": "F", "evidence": ["e"], "recommendation": "r"}
+    s = sess.start(a["user_id"])
+    hist.add(a["user_id"], s, "good chart q", ins, {"type": "bar", "x": "cat", "y": "n", "title": "T"}, _SLICE)
+    hist.add(a["user_id"], s, "bad chart q", ins, {"type": "bar", "x": "zzz", "y": "n", "title": "T"}, _SLICE)
+    at = start_app(monkeypatch, tmp_path, role="manager")
+    with caplog.at_level(logging.WARNING):
+        at.sidebar.radio(key="page").set_value("History").run(timeout=60)
+    assert not at.exception
+    assert len(at.get("plotly_chart")) == 1
+    captions = [c.value for c in at.caption]
+    assert captions.count("Chart not available for this answer.") == 1
+    assert "History chart failed" not in caplog.text
