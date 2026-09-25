@@ -27,6 +27,7 @@
 3. Prompt override compatibility is checked with `REQUIRED_VARS` (variables the node depends on must appear as `$var` in the chosen version file).
 4. Export is audited from `st.download_button(on_click=...)`; AppTest cannot click it, so the callback function is unit-tested directly.
 5. `graph/trace.py::generated_sql(prompts)` is extracted from the judge module so the audit hook and judge share it.
+6. `PROJECT_MEMORY.md` is written only by the Admin "write_memory" button; the spec also said "after each session end", which is deliberately not implemented (the file can be stale between regenerations).
 
 ## File Structure
 ```
