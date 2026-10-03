@@ -341,3 +341,18 @@ def test_router_dispatches_through_the_module(monkeypatch, tmp_path):
     monkeypatch.setattr(analyze, "render_analyze", lambda ctx: st.write("PATCHED PAGE"))
     at = start_app(monkeypatch, tmp_path, role="analyst")
     assert any("PATCHED PAGE" in m.value for m in at.markdown)
+
+
+def test_bootstrap_requires_setup_code_when_configured(monkeypatch, tmp_path):
+    monkeypatch.setenv("BOOTSTRAP_CODE", "s3cret-code")
+    at = fresh_app(monkeypatch, tmp_path)
+    at.text_input(key="bootstrap_username").set_value("root")
+    at.text_input(key="bootstrap_password").set_value("correct horse")
+    at.text_input(key="bootstrap_confirm").set_value("correct horse")
+    at.text_input(key="bootstrap_code").set_value("wrong")
+    at.button(key="bootstrap_create").click().run(timeout=60)
+    assert any("setup code" in e.value.lower() for e in at.error)
+    assert "user_created" not in actions(tmp_path)
+    at.text_input(key="bootstrap_code").set_value("s3cret-code")
+    at.button(key="bootstrap_create").click().run(timeout=60)
+    assert "user_created" in actions(tmp_path)

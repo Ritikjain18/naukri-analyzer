@@ -9,7 +9,5 @@ langchain-core>=1.0
 langchain-groq>=0.2
 pydantic>=2.7
 python-dotenv>=1.0
-pytest>=8
 tiktoken>=0.13
-guardrails-ai==0.11.0
 python-pptx>=1.0

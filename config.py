@@ -46,6 +46,11 @@ class MissingKeyError(RuntimeError):
     pass
 
 
+def bootstrap_code() -> str:
+    """Optional setup code required to create the first admin (set BOOTSTRAP_CODE on hosted deployments)."""
+    return os.environ.get("BOOTSTRAP_CODE", "").strip()
+
+
 def get_api_key() -> str:
     key = os.environ.get("GROQ_API_KEY", "").strip()
     if not key:

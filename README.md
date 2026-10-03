@@ -6,12 +6,12 @@ Multi-agent HR analytics on Groq + LangGraph + Streamlit. Phases 1, 2 and 3a run
 
 ## Setup
     python3.13 -m venv .venv && source .venv/bin/activate
-    pip install -r requirements.txt
+    pip install -r requirements-dev.txt   # requirements.txt is the slim runtime set used for deployment
     cp .env.example .env        # then put your Groq key in .env
     python -m data.seed         # optional; the app seeds an empty DB itself
-    streamlit run app.py        # serves on http://localhost:8501 (127.0.0.1 only)
+    streamlit run app.py --server.address 127.0.0.1   # http://localhost:8501, this machine only
 
-The server binds to `127.0.0.1` (localhost) only, set in `.streamlit/config.toml` and picked up when you start it from the project root. Without this Streamlit listens on every network interface, and because there is no HTTPS and the first run offers a "create admin" form, anyone who could reach the port before the first admin exists could take over the app. To allow LAN access deliberately, run `streamlit run app.py --server.address 0.0.0.0`, only on a trusted network or behind a reverse proxy with HTTPS, and only after the first admin exists.
+Always start it with `--server.address 127.0.0.1` locally. Without it Streamlit listens on every network interface, and because there is no HTTPS and the first run offers a "create admin" form, anyone who could reach the port before the first admin exists could take over the app. To allow LAN access deliberately, run `streamlit run app.py --server.address 0.0.0.0`, only on a trusted network or behind a reverse proxy with HTTPS, and only after the first admin exists.
 
 The app is a local, single-machine app with user accounts (see Phase 3a below): all users share one local SQLite database, so uploaded tables are visible to everyone who can log in.
 
@@ -57,7 +57,7 @@ Every action is checked in code, not only hidden in the UI; a denied attempt is 
 **Storage.** Accounts, audit, history and summaries live in `data/app.db` (SQLite, created on first run); model usage stays in `data/usage.db`. Both are gitignored (`data/*.db`).
 
 **Limits.**
-- Network exposure: the server binds to `127.0.0.1` by default; passing `--server.address 0.0.0.0` exposes an app with no HTTPS to the network.
+- Network exposure: run locally with `--server.address 127.0.0.1`; passing `--server.address 0.0.0.0` exposes an app with no HTTPS to the network.
 - There is no HTTPS: run it on localhost or a trusted network and do not expose it to the internet.
 - Login is held in the browser session and is lost on refresh; log in again.
 - Uploaded tables are shared by all users.
@@ -88,3 +88,18 @@ This calls `AuthService.reset_password`, which also clears any lockout. It does 
 See `docs/superpowers/specs/` and `docs/superpowers/plans/`.
 
 The SQL prompt (v3) forces real division for rates, ratios and percentages (`CAST(... AS REAL)` with `NULLIF`), avoiding SQLite's integer truncation.
+
+## Deploying on Streamlit Community Cloud (free)
+
+1. Push this folder to a GitHub repo (private is fine; `.env` and `data/*.db` are gitignored).
+2. On share.streamlit.io choose "Create app", pick the repo, branch `main`, main file `app.py`, and Python 3.13 under advanced settings.
+3. Under Advanced settings > Secrets, add:
+
+       GROQ_API_KEY = "gsk_..."
+       BOOTSTRAP_CODE = "a long random string"
+
+4. Deploy, open the link, and create the admin immediately using the setup code. `BOOTSTRAP_CODE` stops a stranger who reaches a freshly restarted app from claiming the admin account.
+5. Set the app to private (Share) and invite the viewers by email, or keep it public if you accept that anyone can reach the login page.
+6. Updates: `git push` to `main` redeploys automatically.
+
+Caveats: Community Cloud's disk is ephemeral. Accounts, history, summaries, uploads and the audit log are wiped whenever the app restarts or redeploys, and you will recreate the admin and users. Everyone shares your Groq key and its 8,000 tokens-per-minute limit. Guardrails AI is optional and not installed there (the pure checks run instead).

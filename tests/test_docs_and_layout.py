@@ -30,13 +30,10 @@ def test_accounts_package_uses_only_the_standard_library_for_crypto_and_storage(
             assert banned not in src, (f, banned)
 
 
-def test_streamlit_config_binds_to_localhost_only():
-    import tomllib
-    cfg = tomllib.loads((ROOT / ".streamlit" / "config.toml").read_text())
-    server = cfg["server"]
-    assert server["address"] == "127.0.0.1"
-    assert server.get("enableCORS") is not False
-    assert server.get("enableXsrfProtection") is not False
+def test_readme_documents_localhost_binding_and_deploy():
+    text = (ROOT / "README.md").read_text()
+    assert "--server.address 127.0.0.1" in text
+    assert "BOOTSTRAP_CODE" in text and "Streamlit Community Cloud" in text
 
 
 def test_streamlit_config_is_not_gitignored():

@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest>=8
+guardrails-ai==0.11.0

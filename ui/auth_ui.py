@@ -1,11 +1,13 @@
+import hmac
 import logging
 
 import streamlit as st
 
+import config
 from accounts.auth import AccountError
 
 log = logging.getLogger(__name__)
-PASSWORD_KEYS = ("login_password", "bootstrap_password", "bootstrap_confirm", "pw_old", "pw_new")
+PASSWORD_KEYS = ("login_password", "bootstrap_password", "bootstrap_confirm", "bootstrap_code", "pw_old", "pw_new")
 SESSION_KEYS = ("auth", "session_id", "shared", "messages", "pending_revision", "ingest_prompts", "history_viewed",
                 "admin_flash", "admin_clear")
 
@@ -85,7 +87,12 @@ def render_bootstrap(services) -> None:
     username = st.text_input("Username", key="bootstrap_username")
     password = st.text_input("Password", type="password", key="bootstrap_password")
     confirm = st.text_input("Confirm password", type="password", key="bootstrap_confirm")
+    expected = config.bootstrap_code()
+    code = st.text_input("Setup code", type="password", key="bootstrap_code") if expected else ""
     if not st.button("Create admin", key="bootstrap_create"):
+        return
+    if expected and not hmac.compare_digest(code.encode(), expected.encode()):
+        st.error("Wrong setup code.")
         return
     if password != confirm:
         st.error("Passwords do not match.")
