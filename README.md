@@ -95,7 +95,7 @@ The SQL prompt (v3) forces real division for rates, ratios and percentages (`CAS
 2. On share.streamlit.io choose "Create app", pick the repo, branch `main`, main file `app.py`, and Python 3.13 under advanced settings.
 3. Under Advanced settings > Secrets, add:
 
-       GROQ_API_KEY = "gsk_..."
+       GROQ_API_KEY = "<your Groq key>"
        BOOTSTRAP_CODE = "a long random string"
 
 4. Deploy, open the link, and create the admin immediately using the setup code. `BOOTSTRAP_CODE` stops a stranger who reaches a freshly restarted app from claiming the admin account.
